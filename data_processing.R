@@ -6,10 +6,10 @@
 # 2. There is sth to be said about either GCL ONLY or GCC+ (Spectralis has higher resolution but we go with previous conventions)
 #
 library(lubridate)
-gcl <- read.csv("../data/gcl.csv") # includes ILM
-ipl <- read.csv("../data/ipl.csv") # includes GCL
-cpRnfl <- read.csv("../data/rnfl.csv")
-healthy_mrns_c <- read.csv("../data/healthy_ids.csv", header = FALSE)$V1
+gcl <- read.csv("./data/gcl.csv") # includes ILM
+ipl <- read.csv("./data/ipl.csv") # includes GCL
+cpRnfl <- read.csv("./data/rnfl.csv")
+healthy_mrns_c <- read.csv("./data/healthy_ids.csv", header = FALSE)$V1
 # Macula: need to flip the grid if the eye is left!
 for (i in 1:8) {
   gcl[gcl$eye=="L", (12 + 8*(i-1) + 1):(12 + 8*i)] <-
@@ -58,8 +58,8 @@ colnames(gcl_matched)[1] <- c("patientid")
 colnames(ipl_matched)[1] <- c("patientid")
 incl.t.mod <- unlist(lapply(strsplit(incl.t, "T\\."), function(str) paste(str, collapse = "")))
 # Weird character UTF-8: hex C383 	
-incl.col1.mod <- unlist(lapply(strsplit(incl.col1, "Ã"), function(str) str[1]))
-incl.col2.mod <- unlist(lapply(strsplit(incl.col2, "Ã"), function(str) str[1]))
+incl.col1.mod <- unlist(lapply(strsplit(incl.col1, "ï¿½"), function(str) str[1]))
+incl.col2.mod <- unlist(lapply(strsplit(incl.col2, "ï¿½"), function(str) str[1]))
 colnames(Z_sample)[-c(1:2)] <- tolower(incl.t.mod)
 colnames(gcl_matched)[-c(1:2)] <- incl.col1.mod
 colnames(ipl_matched)[-c(1:2)] <- incl.col2.mod
@@ -103,6 +103,6 @@ agg_data <- merge(Z_byDate, m_byDate, by = c("patientid", "examyear"))
 agg_data$group <- 0
 agg_data$group[agg_data$patientid %in% idMatches_tr] <- 1
 ## In total 625 eyes for unhealthy, 93 eyes for healthy
-saveRDS(agg_data, file = "../data/macula_cross14-17.Rds")
+saveRDS(agg_data, file = "./data/macula_cross14-17.Rds")
 
 #######

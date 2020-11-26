@@ -1,7 +1,7 @@
 # Pre-processing before fitting the model
-df <- readRDS("../data/macula_cross14-17.Rds")
-pseudomean_Y <- readRDS("../data/control_m.Rds")
-pseudomean_Z <- readRDS("../data/control_cp.Rds")
+df <- readRDS("./data/macula_cross14-17.Rds")
+pseudomean_Y <- readRDS("./data/control_m.Rds")
+pseudomean_Z <- readRDS("./data/control_cp.Rds")
 ids <- as.integer(factor(df$patientid, levels = sort(unique(df$patientid))))
 id_list <- lapply(1:max(ids), function(x) which(ids==x))
 labels <- df$group
@@ -32,4 +32,4 @@ data <- list(Z_s = Z_s, Y_s = Y_s, zmeans = zmeans, ymeans = ymeans,
              small_inds = small_inds, mis_adjs = mis_adjs, mis_inds = mis_inds, 
              distMat = distMat, Lap = Lap, 
              ids = ids, id_list = id_list, labels = labels)
-saveRDS(data, file = "../data/fit_data.Rds")
+saveRDS(data, file = "./data/fit_data.Rds")

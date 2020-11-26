@@ -10,10 +10,10 @@ source("./prior_distances.R") # Code computing the distance matrix
 #####
 
 # Rehash from data_processing.R
-gcl <- read.csv("../data/gcl.csv")
-ipl <- read.csv("../data/ipl.csv")
-cpRnfl <- read.csv("../data/rnfl.csv")
-healthy_mrns_c <- read.csv("../data/healthy_ids.csv", header = FALSE)$V1
+gcl <- read.csv("./data/gcl.csv")
+ipl <- read.csv("./data/ipl.csv")
+cpRnfl <- read.csv("./data/rnfl.csv")
+healthy_mrns_c <- read.csv("./data/healthy_ids.csv", header = FALSE)$V1
 
 idMatches <- intersect(
   intersect(unique(ipl$maskedid), unique(gcl$maskedid)),
@@ -50,5 +50,5 @@ set.seed(2020-11-21)
 healthy_Z2 <- healthy_Z + 1.5 * rnorm(length(healthy_Z)) * Z_sd / sqrt(length(healthy_Z))
 healthy_Y2 <- healthy_Y + 1.5 * rnorm(length(healthy_Y)) * Y_sd / sqrt(length(healthy_Y))
 
-saveRDS(healthy_Y2, file = "../data/control_m.Rds")
-saveRDS(healthy_Z2, file = "../data/control_cp.Rds")
+saveRDS(healthy_Y2, file = "./data/control_m.Rds")
+saveRDS(healthy_Z2, file = "./data/control_cp.Rds")

@@ -1,6 +1,6 @@
 library(GIGrvg)
 
-data <- readRDS("../data/fit_data.Rds")
+data <- readRDS("./data/fit_data.Rds")
 attach(data)
 source("./sampler_sketch.R")
 source("./utilities.R")
