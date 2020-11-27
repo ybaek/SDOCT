@@ -8,7 +8,7 @@ using namespace arma;
 // 1. Fixed (vectorized) coefficient matrix + observation precision
 
 // [[Rcpp::depends(RcppArmadillo)]]
-void nextmove_betaSigma(vec& beta, double& sig2inv, mat& chols_m, vec& mnorms_v,
+void nextmove_betaSigma(vec& beta, double& sig2inv, vec& mnorms_v,
                         const mat& X, const mat& Y, const mat& means, const vec& beta_diags, double rho) {
     const uword N = X.n_rows;
     const uword P = X.n_cols;
@@ -27,9 +27,9 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, mat& chols_m, vec& mnorms_v,
         // Decompose R'R = Prior precision[inds] + (1-rho)*Z'Z
         mat w_xtx = (1.0-rho) * X.t() * X; // self-product of X, weighted by 1-rho
         w_xtx.diag() += 1.0/beta_diags.subvec(start, end);
-        chols_m = chol(w_xtx);
+        chol_m = chol(w_xtx);
         // Solve for R'x = vec Z'(Y-all the rest mean) and store
-        quad_v = vectorise(forwardsub(chols_m.t(), beta_umean.subvec(start, end)));
+        quad_v = vectorise(forwardsub(chol_m.t(), beta_umean.subvec(start, end)));
         // Accumulate (1-rho)^2*||quads_v||^2
         sig_tr_total += std::pow(1.0-rho, 2) * accu(quad_v);
         // Solve for R(posterior mean) = (1-rho)*x 
@@ -80,7 +80,7 @@ void nextmove_c2(vec& c2, vec& beta_diags, const vec& beta, const double sig2inv
     for (uword i = 0; i < inds.n_elem; i++) {
         double Chi = std::pow(beta(inds(i)),2) * sig2inv; // Argument passed to GIG RNG
         c2(i) = rgigRcpp(0.0, Chi, std::pow(c0, -2));
-        beta_diags(i) = c2(i) * beta_var0;
+        beta_diags(inds(i)) = c2(i) * beta_var0;
     }
 }
 
@@ -117,4 +117,46 @@ void impute_car(mat& target, const mat& means, const double prec, const double r
         }
         counter += n_ns(j);
     }
+}
+
+// Main routine
+
+// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::export]]
+int main (const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::List& hyper, const Rcpp::List& mcmc) {
+    const mat Y = Rcpp::as<mat>(data["Y"]);
+    const mat X = Rcpp::as<mat>(data["X"]);
+    const mat prec_y = Rcpp::as<mat>(hyper["prec_y"]);
+    const mat prec_x = Rcpp::as<mat>(hyper["prec_x"]);
+    const umat mis_inds = Rcpp::as<umat>(hyper["mis_inds"]);
+    const uvec ids = Rcpp::as<uvec>(hyper["ids"]);
+    const uvec small_inds = Rcpp::as<uvec>(hyper["small_inds"]);
+    const uvec n_ns = Rcpp::as<uvec>(hyper["n_ns"]);
+    const double c0 = hyper["c0"];
+    const double beta_var0 = hyper["var0"];
+    const double rho = hyper["rho"];
+    const int I = mcmc["I"];
+    const int burnin = mcmc["burnin"];
+    const int thin = mcmc["thin"];
+
+    // Mutables
+    vec beta = Rcpp::as<vec>(inits["beta"]);
+    double sig2inv = inits["sig2inv"];
+    double tau2inv = inits["tau2inv"];
+
+    // Auxiliary objects needed for sampling
+    vec beta_diags(beta.n_elem);
+    beta_diags.fill(beta_var0);
+    beta_diags.elem(small_inds) *= std::pow(c0, 2);
+
+    vec mnorms_v(beta.n_elem, fill::zeros);
+    mat gamma_m(Y.n_rows, Y.n_cols, fill::zeros);
+    // TODO: do I require initialization of all latent parameters
+
+    // FIXME
+    mat result = mat(beta.n_rows+1+1+small_inds.n_rows, I);
+    // for (...) {
+    // 
+    // }
+    return 0;
 }
