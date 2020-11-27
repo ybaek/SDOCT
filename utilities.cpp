@@ -4,6 +4,7 @@ using namespace arma;
 
 // Vectorized pseudorandom & Gaussian RNGs, overloaded for vecs / mats
 
+// [[Rcpp::depends(RcppArmadillo)]]
 vec runif_v(const int N) {
     vec rands(N);
     for (int i=0; i < N; i++) 
@@ -11,6 +12,7 @@ vec runif_v(const int N) {
     return rands;
 }
 
+// [[Rcpp::depends(RcppArmadillo)]]
 vec rnorm_v(const int N) {
     vec rands(N);
     for (int i=0; i < N; i++) 
@@ -18,6 +20,7 @@ vec rnorm_v(const int N) {
     return rands;
 }
 
+// [[Rcpp::depends(RcppArmadillo)]]
 mat runif_v(const int M, const int N) {
     mat rands(M, N);
     for (int i=0; i < M; i++) {
@@ -28,6 +31,7 @@ mat runif_v(const int M, const int N) {
     return rands;
 }
 
+// [[Rcpp::depends(RcppArmadillo)]]
 mat rnorm_v(const int M, const int N) {
     mat rands(M, N);
     for (int i=0; i < M; i++) {

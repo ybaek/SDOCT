@@ -1,5 +1,5 @@
 #include <RcppArmadillo.h>
-// # include "utilities.h"
+#include "utilities.h"
 
 using namespace arma;
 
