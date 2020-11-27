@@ -27,7 +27,7 @@ test <- setdiff(1:N, train)
 lss <- lm(Y_s[train,] ~ Z_s[train,]-1)
 # fields::image.plot(t(coef(lss)), col = hcl.colors(12, "RdBu", rev=T))
 lss_rocs <- validate_roc(coef(lss), labels, train, test, Z_s, Y_s)
-plot(lss_roc$roc, main = "ROC curve for least squares fit")
+plot(lss_rocs$roc, main = "ROC curve for least squares fit")
 
 # Same model but standardized
 Z_ss <- scale(Z_s, F, T)
