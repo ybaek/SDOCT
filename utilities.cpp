@@ -2,27 +2,69 @@
 
 using namespace arma;
 
+// Vectorized pseudorandom & Gaussian RNGs, overloaded for vecs / mats
+
 vec runif_v(const int N) {
     vec rands(N);
     for (int i=0; i < N; i++) 
-        rands(i) = R::runif(0.0, 1.0);
+        rands[i] = R::runif(0.0, 1.0);
     return rands;
 }
 
 vec rnorm_v(const int N) {
     vec rands(N);
     for (int i=0; i < N; i++) 
-        rands(i) = R::rnorm(0.0, 1.0);
+        rands[i] = R::rnorm(0.0, 1.0);
     return rands;
 }
 
-// [[Rcpp::export]]
+mat runif_v(const int M, const int N) {
+    mat rands(M, N);
+    for (int i=0; i < M; i++) {
+        for (int j=0; j < N; j++) {
+            rands[i,j] = R::runif(0.0, 1.0);
+        }
+    }
+    return rands;
+}
+
+mat rnorm_v(const int M, const int N) {
+    mat rands(M, N);
+    for (int i=0; i < M; i++) {
+        for (int j=0; j < N; j++) {
+            rands[i,j] = R::rnorm(0.0, 1.0);
+        }
+    }
+    return rands;
+}
+
+// Normal log-density function, taking mat and returning mat
+// (Does NOT take in vec/mat standard deviation)
+
+// [[Rcpp::depends(RcppArmadillo)]]
+mat ldnorm_v(const mat& x, const mat& mu_m, const double sigma) {
+    const int M = x.n_rows;
+    const int N = x.n_cols;
+    mat densities(M, N);
+    for (int i=0; i < M; i++) {
+        for (int j=0; j < N; j++) {
+            densities[i,j] = R::dnorm(x[i,j], mu_m[i,j], sigma, 1);
+        }
+    }
+    return densities;
+}
+
+// Call Generalized inverse Gaussian RNG from R
+
 double rgigRcpp(const double Lambda, const double Chi, const double Psi) {
     Rcpp::Environment GIGrvg = Rcpp::Environment::namespace_env("GIGrvg");
     Rcpp::Function rgig = GIGrvg["rgig"];
     SEXP rgigSEXP = rgig(1, Rcpp::Named("lambda")=Lambda, Rcpp::Named("chi")=Chi, Rcpp::Named("psi")=Psi);
     return Rcpp::as<double>(rgigSEXP);
 }
+
+// Linear algebra functions suitable for 
+// multivariate Gaussian full conditional sampling
 
 // [[Rcpp::depends(RcppArmadillo)]]
 mat backsub(const mat& r, const mat& x) {
