@@ -1,4 +1,5 @@
 #include <RcppArmadillo.h>
+// # include "utilities.h"
 
 using namespace arma;
 
@@ -13,8 +14,8 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, mat& chols_m, vec& mnorms_v,
     const uword P = X.n_cols;
     const uword Q = Y.n_cols;
     double sig_tr_total = 0; // Accumulates all the needed traces for sampling sig2inv
-    mat centered = Y - means;
-    vec beta_umean = vectorise(X.t() * centered);
+    const mat centered = Y - means;
+    const vec beta_umean = vectorise(X.t() * centered);
     // TODO include header
     vec inorms = rnorm_v(P*Q);
     // Iterate the diagonal Q blocks and accumulate Cholesky factors separately
@@ -26,7 +27,7 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, mat& chols_m, vec& mnorms_v,
         // Decompose R'R = Prior precision[inds] + (1-rho)*Z'Z
         mat w_xtx = (1.0-rho) * X.t() * X; // self-product of X, weighted by 1-rho
         w_xtx.diag() += 1.0/beta_diags.subvec(start, end);
-        chols_m = chol(w_xtx);
+        chols_m = arma::chol(w_xtx);
         // Solve for R'x = vec Z'(Y-all the rest mean) and store
         quad_v = forwardsub(chols_m.t(), beta_umean.subvec(start, end));
         // Accumulate (1-rho)^2*||quads_v||^2
@@ -37,23 +38,69 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, mat& chols_m, vec& mnorms_v,
         mnorms_v.subvec(start, end) = backsub(chol_m, inorms.subvec(start, end));
     }
     // Sample sigma^-2 ~ Gamma(.5+.5*N*Q, .5+.5*((1-rho)*(Y-rest)'(Y-rest) - accumulated (1-rho)^2*||quads_v||^2))
-    sig2inv = R::rgamma(.5+static_cast<double>(.5*N*Q), (1.0-rho)*trace(centered.t() * centered) - sig_tr_total);
+    sig2inv = R::rgamma(.5+static_cast<double>(.5*N*Q), (1.0-rho)*trace(centered.t()*centered) - sig_tr_total);
     // Set beta <- posterior mean + MVN vector / sigma^-2
     beta = beta + mnorms_v / sig2inv;
 }
 
 // 2. Random coefficient matrices + hierarchical (nugget/spatial) precision
 
+// [[Rcpp::depends(RcppArmadillo)]]
+void nextmove_gammaTau(cube& gamma, double& tau2inv, 
+                       const mat& X, const mat& Y, const mat& beta_m, const double sig2inv,
+                       const uvec& ids, const mat& r_y, const mat& prec_x) {
+    const uword P = X.n_cols;
+    const uword Q = Y.n_cols;
+    const uword J = ids.max();
+    double sse = 0; // Keep track of all traces needed for sampling tau2inv AFTER loop
+    for (uword j = 0; j < J; j++) {
+        const mat X_slice = X.rows(find( ids == j ));
+        const mat Y_slice = Y.rows(find( ids == j ));
+        const mat centered = Y_slice - X_slice * beta_m;
+        // Decompose R'R = tau^-2 * precision_row + Z[j,]'Z[j,] (row-wise covariance)
+        mat post_prec_chol = arma::chol(tau2inv*prec_x + X_slice.t() * X_slice);
+        // Solve for R'R(posterior mean) = vec Z'(Y-rest)
+        // Also solve for (R(MN matrix)R_y')' = (PxQ normal matrix) where R_y is static (col-wise covariance Cholesky)
+        // and set gamma[,,j] <- posterior mean + MN matrix / (sigma^-2 * tau^-2)
+        gamma.slice(j) = altbacksolve(post_prec_chol, r_y, rnorm_v(P, Q)) / (sig2inv*tau2inv) + 
+            forbacksolve(post_prec_chol, vectorise(X_slice.t() * centered));
+        sse += trace(r_y.t() * r_y * gamma.slice(j).t() * prec_x * gamma.slice(j));
+    }
+    tau2inv = R::rgamma(.5+static_cast<double>(.5*J*P*Q), .5+.5*sse*sig2inv);
+}
+
 // 3. Sampling hierarchical parameters for beta (c2)
 
+// [[Rcpp::depends(RcppArmadillo)]]
+void nextmove_c2(vec& c2, vec& beta_diags, const vec& beta, const double sig2inv, const uvec inds,
+                 const double c0, const double beta_var0) {
+    for (uword i = 0; i < inds.n_elem; i++) {
+        double Chi = std::pow(beta(inds(i)),2) * sig2inv; // Argument passed to GIG RNG
+        c2(i) = rgigRcpp(0.0, Chi, std::pow(c0, -2));
+        beta_diags(i) = c2(i) * beta_var0;
+    }
+}
+
 // 4. Sampling theta (data augmentation for less expensive CAR sampling)
+
+// [[Rcpp::depends(RcppAramdillo)]]
+void nextmove_theta(mat& theta, const mat& Y, const mat& mean, const double sig2inv, const double rho, const mat& r_y) {
+    const uword N = Y.n_rows;
+    const uword Q = Y.n_cols;
+    const mat centered = Y - mean;
+    mat post_mean_t = backsub(r_y, rnorm_v(N, Q)) / sig2inv;
+    mat post_mnorms_t = forbacksolve(r_y, centered.t()) * (1.0-rho);
+    theta = post_mean_t.t() + post_mnorms_t.t();
+    vec rowMeans = arma::mean(theta, 1); // For sum-to-zero constraint of each image effect
+    theta.each_col() -= rowMeans;
+}
 
 // 5. Impute missing elements in target based on CAR full conditionals
 
 // [[Rcpp::depends(RcppArmadillo)]]
 void impute_car(mat& target, const mat& means, const double prec, const double rho,
                 const umat& mis_inds, const uvec& n_ns, const uvec& neighbors) {
-    double counter = 0;
+    uword counter = 0;
     for (uword j = 0; j < mis_inds.n_rows; j++) {
         const uword mis_loc = mis_inds(j,1);
         const uvec curr_n = neighbors.subvec(counter,counter+n_ns(j)-1);
