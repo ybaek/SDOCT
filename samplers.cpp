@@ -1,9 +1,9 @@
 #include <RcppArmadillo.h>
 #include "utilities.h"
 
-using namespace arma;
-
 // Model-specific component samplers (i.e., full conditional moves that sample per each iteration)
+
+using namespace arma;
 
 // 1. Fixed (vectorized) coefficient matrix + observation precision
 
@@ -27,15 +27,15 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, mat& chols_m, vec& mnorms_v,
         // Decompose R'R = Prior precision[inds] + (1-rho)*Z'Z
         mat w_xtx = (1.0-rho) * X.t() * X; // self-product of X, weighted by 1-rho
         w_xtx.diag() += 1.0/beta_diags.subvec(start, end);
-        chols_m = arma::chol(w_xtx);
+        chols_m = chol(w_xtx);
         // Solve for R'x = vec Z'(Y-all the rest mean) and store
-        quad_v = forwardsub(chols_m.t(), beta_umean.subvec(start, end));
+        quad_v = vectorise(forwardsub(chols_m.t(), beta_umean.subvec(start, end)));
         // Accumulate (1-rho)^2*||quads_v||^2
-        sig_tr_total += std::pow(1.0-rho, 2) * arma::accu(quad_v);
+        sig_tr_total += std::pow(1.0-rho, 2) * accu(quad_v);
         // Solve for R(posterior mean) = (1-rho)*x 
         beta.subvec(start, end) = (1.0-rho)*backsub(chol_m, quad_v);
         // Solve for R(MVN vector, not scaled by sigma^2) = x
-        mnorms_v.subvec(start, end) = backsub(chol_m, inorms.subvec(start, end));
+        mnorms_v.subvec(start, end) = vectorise(backsub(chol_m, inorms.subvec(start, end)));
     }
     // Sample sigma^-2 ~ Gamma(.5+.5*N*Q, .5+.5*((1-rho)*(Y-rest)'(Y-rest) - accumulated (1-rho)^2*||quads_v||^2))
     sig2inv = R::rgamma(.5+static_cast<double>(.5*N*Q), (1.0-rho)*trace(centered.t()*centered) - sig_tr_total);
@@ -44,9 +44,10 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, mat& chols_m, vec& mnorms_v,
 }
 
 // 2. Random coefficient matrices + hierarchical (nugget/spatial) precision
+// Assumes a random effects matrix derived by Z(j,) * gamma(,,j) 
 
 // [[Rcpp::depends(RcppArmadillo)]]
-void nextmove_gammaTau(cube& gamma, double& tau2inv, 
+void nextmove_gammaTau(cube& gamma, double& tau2inv, mat& gamma_m,
                        const mat& X, const mat& Y, const mat& beta_m, const double sig2inv,
                        const uvec& ids, const mat& r_y, const mat& prec_x) {
     const uword P = X.n_cols;
@@ -54,16 +55,18 @@ void nextmove_gammaTau(cube& gamma, double& tau2inv,
     const uword J = ids.max();
     double sse = 0; // Keep track of all traces needed for sampling tau2inv AFTER loop
     for (uword j = 0; j < J; j++) {
-        const mat X_slice = X.rows(find( ids == j ));
-        const mat Y_slice = Y.rows(find( ids == j ));
+        uvec jinds = find(ids==j);
+        const mat X_slice = X.rows(jinds);
+        const mat Y_slice = Y.rows(jinds);
         const mat centered = Y_slice - X_slice * beta_m;
         // Decompose R'R = tau^-2 * precision_row + Z[j,]'Z[j,] (row-wise covariance)
-        mat post_prec_chol = arma::chol(tau2inv*prec_x + X_slice.t() * X_slice);
+        mat post_prec_chol = chol(tau2inv*prec_x + X_slice.t() * X_slice);
         // Solve for R'R(posterior mean) = vec Z'(Y-rest)
         // Also solve for (R(MN matrix)R_y')' = (PxQ normal matrix) where R_y is static (col-wise covariance Cholesky)
         // and set gamma[,,j] <- posterior mean + MN matrix / (sigma^-2 * tau^-2)
         gamma.slice(j) = altbacksolve(post_prec_chol, r_y, rnorm_v(P, Q)) / (sig2inv*tau2inv) + 
             forbacksolve(post_prec_chol, vectorise(X_slice.t() * centered));
+        gamma_m.rows(jinds) = X_slice * gamma.slice(j);
         sse += trace(r_y.t() * r_y * gamma.slice(j).t() * prec_x * gamma.slice(j));
     }
     tau2inv = R::rgamma(.5+static_cast<double>(.5*J*P*Q), .5+.5*sse*sig2inv);
@@ -83,7 +86,7 @@ void nextmove_c2(vec& c2, vec& beta_diags, const vec& beta, const double sig2inv
 
 // 4. Sampling theta (data augmentation for less expensive CAR sampling)
 
-// [[Rcpp::depends(RcppAramdillo)]]
+// [[Rcpp::depends(RcppArmadillo)]]
 void nextmove_theta(mat& theta, const mat& Y, const mat& mean, const double sig2inv, const double rho, const mat& r_y) {
     const uword N = Y.n_rows;
     const uword Q = Y.n_cols;
@@ -109,7 +112,7 @@ void impute_car(mat& target, const mat& means, const double prec, const double r
             const rowvec target_i = target.row(i);
             const rowvec curr_n_i = target_i.elem(neighbors);
             const double mis_mean = means(i,mis_loc);
-            target(i,mis_loc) = (rho*mis_mean + (1-rho)*arma::accu(curr_n_i)) / denom + 
+            target(i,mis_loc) = (rho*mis_mean + (1-rho)*accu(curr_n_i)) / denom + 
                 R::rnorm(0.0,1.0) / std::sqrt(prec * denom);
         }
         counter += n_ns(j);
