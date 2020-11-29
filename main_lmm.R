@@ -21,9 +21,16 @@ inits <- list( beta = c(coef(lm(data$Y ~ data$X - 1))),
                theta = matrix(0, nrow(data$Y), ncol(data$Y)) )
 inits$theta <- (data$Y - data$X %*% matrix(inits$beta, ncol(data$X))) * matrix(rnorm(nrow(data$Y)*ncol(data$Y)), nrow(data$Y))
 
-mcmc <- list(I = 1200, burnin = 200)
+mcmc <- list(I = 1800, burnin = 300)
 
 # Compile the Gibbs sampler routine
 library(Rcpp)
 sourceCpp("samplers.cpp")
-chain1 <- mainSampler(data, inits, hyper, mcmc)
+chain1 <- mainSampler_lmm(data, inits, hyper, mcmc)
+saveRDS(chain1, "./objects/samples_lmm1_cpp.Rds")
+
+# See if standardization leads to drastically different results
+data$X <- scale(input$Z_s, F, T)
+data$Y <- scale(input$Y_s, F, T)
+chain2 <- mainSampler_lmm(data, inits, hyper, mcmc)
+saveRDS(chain2, "./objects/samples_lmm2_cpp.Rds"

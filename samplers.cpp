@@ -127,11 +127,11 @@ void impute_car(mat& target, const mat& means, const double prec, const double r
      }
  }
 
-// Main routine
+// Main routine for matrix LMM 
 
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::export]]
-mat mainSampler(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::List& hyper, const Rcpp::List& mcmc) {
+mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::List& hyper, const Rcpp::List& mcmc) {
     // Constants
     const mat X = Rcpp::as<mat>(data["X"]);
     const uvec ids = Rcpp::as<uvec>(data["ids"]);
