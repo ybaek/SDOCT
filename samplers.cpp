@@ -14,23 +14,20 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, vec& mnorms_v, mat& beta_m,
     const uword N = X.n_rows;
     const uword P = X.n_cols;
     const uword Q = Y.n_cols;
-    double sig_tr_total = 0; // Accumulates all the needed traces for sampling sig2inv
+    double sig_tr_total = 0.0; // Accumulates all the needed traces for sampling sig2inv
     const mat centered = Y - gamma_m - theta;
     const vec beta_umean = vectorise(X.t() * centered);
-    // TODO include header
-    vec inorms = rnorm_v(P*Q);
+    vec inorms = rnorm_v(static_cast<int>(P*Q));
     // Iterate the diagonal Q blocks and accumulate Cholesky factors separately
-    for (int q=1; q < Q+1; ++q) {
-        mat chol_m(P, Q);
-        vec quad_v(P);
+    for (uword q=1; q < Q+1; ++q) {
         uword start = (q-1)*P;
         uword end = q*P-1;
         // Decompose R'R = Prior precision[inds] + (1-rho)*Z'Z
         mat w_xtx = (1.0-rho) * X.t() * X; // self-product of X, weighted by 1-rho
         w_xtx.diag() += 1.0/beta_diags(span(start, end));
-        chol_m = chol(w_xtx);
+        mat chol_m = chol(w_xtx);
         // Solve for R'x = vec Z'(Y-all the rest mean) and store
-        quad_v = vectorise(forwardsub(chol_m.t(), beta_umean(span(start, end))));
+        vec quad_v = vectorise(forwardsub(chol_m.t(), beta_umean(span(start, end))));
         // Accumulate (1-rho)^2*||quads_v||^2
         sig_tr_total += std::pow(1.0-rho, 2) * accu(quad_v);
         // Solve for R(posterior mean) = (1-rho)*x 
@@ -39,7 +36,9 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, vec& mnorms_v, mat& beta_m,
         mnorms_v(span(start, end)) = vectorise(backsub(chol_m, inorms(span(start, end))));
     }
     // Sample sigma^-2 ~ Gamma(.5+.5*N*Q, .5+.5*((1-rho)*(Y-rest)'(Y-rest) - accumulated (1-rho)^2*||quads_v||^2))
-    sig2inv = R::rgamma(.5+static_cast<double>(.5*N*Q), (1.0-rho)*trace(centered.t()*centered) - sig_tr_total);
+    // Remember scale parameter takes the inverse of rate (usually used in R)
+    sig2inv = R::rgamma(.5+static_cast<double>(.5*N*Q), 
+                        1.0/(.5+.5*((1.0-rho)*trace(centered.t()*centered) - sig_tr_total)));
     // Set beta <- posterior mean + MVN vector / sigma^-2
     beta = beta + mnorms_v / sig2inv;
     beta_m = reshape(beta, P, Q);
@@ -55,7 +54,7 @@ void nextmove_gammaTau(cube& gamma, double& tau2inv, mat& gamma_m,
     const uword P = X.n_cols;
     const uword Q = Y.n_cols;
     const uword J = ids.max();
-    double sse = 0; // Keep track of all traces needed for sampling tau2inv AFTER loop
+    double sse = 0.0; // Keep track of all traces needed for sampling tau2inv AFTER loop
     for (uword j = 1; j < J+1; ++j) { // Group label ints are from R and thus start from 1
         uvec jinds = find(ids==j);
         const mat X_slice = X.rows(jinds);
@@ -71,7 +70,8 @@ void nextmove_gammaTau(cube& gamma, double& tau2inv, mat& gamma_m,
         gamma_m.rows(jinds) = X_slice * gamma.slice(j-1);
         sse += trace(r_y.t() * r_y * gamma.slice(j-1).t() * prec_x * gamma.slice(j-1));
     }
-    tau2inv = R::rgamma(.5+static_cast<double>(.5*J*P*Q), .5+.5*sse*sig2inv);
+    // Remember scale parameter takes the inverse of rate (usually used in R)
+    tau2inv = R::rgamma(.5+static_cast<double>(.5*J*P*Q), 1.0/(.5+.5*sse*sig2inv));
 }
 
 // 3. Sampling hierarchical parameters for beta (c2)
@@ -80,8 +80,9 @@ void nextmove_gammaTau(cube& gamma, double& tau2inv, mat& gamma_m,
 void nextmove_c2(vec& c2, vec& beta_diags, 
                  const vec& beta, const double sig2inv, const uvec small_inds,
                  const double c0, const double beta_var0) {
-    for (uword i = 0; i < small_inds.n_elem; ++i) { 
-        double Chi = std::pow(beta(small_inds(i)),2) * sig2inv; // Argument passed to GIG RNG
+    for (uword i = 0; i < small_inds.n_elem; ++i) {
+        uword bInd = small_inds(i); 
+        double Chi = std::pow(beta(bInd),2) * sig2inv; // Argument passed to GIG RNG
         c2(i) = rgigRcpp(0.0, Chi, std::pow(c0, -2));
         beta_diags(small_inds(i)) = c2(i) * beta_var0;
     }
@@ -159,15 +160,15 @@ mat mainSampler(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::Lis
     double tau2inv = inits["tau2inv"];
 
     // Auxiliary containers for sampling
-    vec beta_diags(beta.n_elem);
+    vec beta_diags(beta.n_rows);
     beta_diags.fill(beta_var0);
-    beta_diags.rows(small_inds) %= c2.as_row();
-    vec mnorms_v(beta.n_elem, fill::zeros);
+    beta_diags.rows(small_inds) %= c2;
+    vec mnorms_v(beta.n_rows, fill::zeros);
     mat beta_m(X.n_cols, Y.n_cols, fill::zeros);
     mat gamma_m(Y.n_rows, Y.n_cols, fill::zeros);
     mat lpd(Y.n_rows, Y.n_cols, fill::zeros); // Log point-wise likelihoods
     
-    mat out = mat(beta.n_rows+1+1+small_inds.n_rows+Y.n_rows*Y.n_cols, I-burnin);
+    mat out = mat(beta.n_rows+1+1+small_inds.n_rows+Y.n_elem, I-burnin, fill::zeros);
     for (uword iter = 0; iter < I; ++iter) {
         nextmove_betaSigma(beta, sig2inv, mnorms_v, beta_m, X, Y, gamma_m, theta, beta_diags, rho);
         nextmove_gammaTau(gamma, tau2inv, gamma_m, X, Y, beta_m, sig2inv, ids, r_y, prec_x);
@@ -175,12 +176,14 @@ mat mainSampler(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::Lis
         nextmove_theta(theta, Y, X, beta_m, gamma_m, sig2inv, rho, r_y);
         impute_car(Y, X * beta_m + gamma_m + theta, sig2inv, rho, mis_inds, n_ns, neighbors);
         lpd = ldnorm_v(Y, X * beta_m + gamma_m + theta, sig2inv); // Update log pointwise densities
+        
         if (iter > burnin-1) {
-            out(span(0, beta.n_rows-1), iter) = beta;
-            out(beta.n_rows, iter) = sig2inv;
-            out(beta.n_rows+1, iter) = tau2inv;
-            out(span(beta.n_rows+2, beta.n_rows+small_inds.n_rows+1), iter) = c2;
-            out(span(beta.n_rows+small_inds.n_rows+2, out.n_rows-1), iter) = vectorise(lpd);
+            uword keep_iter = iter - burnin;
+            out(span(0, beta.n_rows-1), keep_iter) = beta;
+            out(beta.n_rows, keep_iter) = sig2inv;
+            out(beta.n_rows+1, keep_iter) = tau2inv;
+            out(span(beta.n_rows+2, beta.n_rows+small_inds.n_rows+1), keep_iter) = c2;
+            out(span(beta.n_rows+small_inds.n_rows+2, out.n_rows-1), keep_iter) = vectorise(lpd);
         }
     }
     return out;
