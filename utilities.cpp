@@ -7,7 +7,7 @@ using namespace arma;
 // [[Rcpp::depends(RcppArmadillo)]]
 vec runif_v(const int N) {
     vec rands(N);
-    for (uword i=0; i < static_cast<uword>(N); i++) 
+    for (uword i=0; i < static_cast<uword>(N); ++i) 
         rands(i) = R::runif(0.0, 1.0);
     return rands;
 }
@@ -15,7 +15,7 @@ vec runif_v(const int N) {
 // [[Rcpp::depends(RcppArmadillo)]]
 vec rnorm_v(const int N) {
     vec rands(N);
-    for (uword i=0; i < static_cast<uword>(N); i++) 
+    for (uword i=0; i < static_cast<uword>(N); ++i) 
         rands(i) = R::rnorm(0.0, 1.0);
     return rands;
 }
@@ -23,8 +23,8 @@ vec rnorm_v(const int N) {
 // [[Rcpp::depends(RcppArmadillo)]]
 mat runif_v(const int M, const int N) {
     mat rands(M, N);
-    for (uword j=0; j < static_cast<uword>(N); j++) {
-        for (uword i=0; i < static_cast<uword>(M); i++) {
+    for (uword j=0; j < static_cast<uword>(N); ++j) {
+        for (uword i=0; i < static_cast<uword>(M); ++i) {
             rands(i,j) = R::runif(0.0, 1.0);
         }
     }
@@ -34,8 +34,8 @@ mat runif_v(const int M, const int N) {
 // [[Rcpp::depends(RcppArmadillo)]]
 mat rnorm_v(const int M, const int N) {
     mat rands(M, N);
-    for (uword j=0; j < static_cast<uword>(N); j++) {
-        for (uword i=0; i < static_cast<uword>(M); i++) {
+    for (uword j=0; j < static_cast<uword>(N); ++j) {
+        for (uword i=0; i < static_cast<uword>(M); ++i) {
             rands(i,j) = R::rnorm(0.0, 1.0);
         }
     }
@@ -50,8 +50,8 @@ mat ldnorm_v(const mat& x, const mat& mu_m, const double sigma) {
     const int M = x.n_rows;
     const int N = x.n_cols;
     mat densities(M, N);
-    for (uword i=0; i < static_cast<uword>(M); i++) {
-        for (uword j=0; j < static_cast<uword>(N); j++) {
+    for (uword j=0; j < static_cast<uword>(N); ++j) {
+        for (uword i=0; i < static_cast<uword>(M); ++i) {
             densities(i,j) = R::dnorm(x(i,j), mu_m(i,j), sigma, 1);
         }
     }
