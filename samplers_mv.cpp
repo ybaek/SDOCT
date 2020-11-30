@@ -13,16 +13,17 @@ using namespace arma;
 void nextmove_betaSigma(vec& beta, double& sig2inv, vec& mnorms_v, mat& beta_m,
                         mat X, const mat& Y, const vec& tau2invs, const mat& theta,
                         const vec& beta_diags, double rho) {
+    // Note X was passed in by value
     const uword N = X.n_rows;
     const uword P = X.n_cols;
     const uword Q = Y.n_cols;
     double sig_tr_total = 0.0; // Accumulates all the needed traces for sampling sig2inv
     mat centered = Y - theta;
-    centered.each_col() %= 1.0 / arma::sqrt(tau2invs);
+    centered.each_col() /= arma::sqrt(tau2invs);
     const vec beta_umean = vectorise(X.t() * centered);
     vec inorms = rnorm_v(static_cast<int>(P*Q));
     // Added step: weight each column by patient-wise tau's
-    X.each_col() /= arma::sqrt(tau2invs); // X was passed in by value
+    X.each_col() /= arma::sqrt(tau2invs); 
     // Iterate the diagonal Q blocks and accumulate Cholesky factors separately
     for (uword q=1; q < Q+1; ++q) {
         uword start = (q-1)*P;
@@ -49,8 +50,26 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, vec& mnorms_v, mat& beta_m,
     beta_m = reshape(beta, P, Q);
 }
 
-// 2. TODO: Sample patient-specific precisions
+// 2. Sample patient-specific precisions
 // Assumes an N-length vector to fill in those precisions (J unique)
+
+// [[Rcpp::depends(RcppArmadillo)]]
+void nextmove_tau2invs(vec& tau2invs,
+                       const mat& X, const mat& Y, const mat& beta_m, const double sig2inv,
+                       const uvec& ids, const mat& r_y) {
+    const uword J = ids.max();
+    for (uword j = 1; j < J+1; ++j) { // Group label ints are from R and thus start from 1
+        uvec jinds = find(ids==j);
+        const uword nj = jinds.n_rows;
+        const mat X_slice = X.rows(jinds);
+        const mat Y_slice = Y.rows(jinds);
+        const mat centered = Y_slice - X_slice * beta_m;
+        double sse = trace(r_y.t() * r_y * centered.t() * centered) * sig2inv;
+        // Note Rgamma takes scale, not inverse scale (as is frequently done in R)
+        double tau2inv_j = R::rgamma(.5+static_cast<double>(.5*nj*Y.n_cols), 1.0 / (.5 + .5*sse));
+        tau2invs.rows(jinds).fill(tau2inv_j);
+    }
+}
 
 // 3. Sampling hierarchical parameters for beta (c2)
 
@@ -86,7 +105,7 @@ void nextmove_theta(mat& theta, const mat& Y, const mat& X, const mat& beta_m, c
 // 5. Impute missing elements in target based on CAR full conditionals
 
 // [[Rcpp::depends(RcppArmadillo)]]
-void impute_car(mat& target, const mat& means, const vec& tau2invs, const double rho,
+void impute_car(mat& target, const mat& means, const vec& tau2invs, const double sig2inv, const double rho,
                 const umat& mis_inds, const uvec& n_ns, const uvec& neighbors) {
     // No explicit NA handling, they must have been "filled out" from R as it is now
     // O/w erroneous results -- it'll be best to pre-process in R 
@@ -102,10 +121,71 @@ void impute_car(mat& target, const mat& means, const vec& tau2invs, const double
             const double mis_mean = means(i,mis_loc);
              target(i,mis_loc) = (rho*accu(curr_n_i) + (1.0-rho)*mis_mean) / denom + 
                 // Added step: instead of a single precision, patient-specific precision at each row i
-                 R::rnorm(0.0,1.0) / std::sqrt(tau2invs(i) * denom);
+                 R::rnorm(0.0,1.0) / std::sqrt(tau2invs(i) * sig2inv * denom);
          }
          counter += n_ns(j);
      }
  }
 
 // TODO: modify the Gibbs sampler
+// [[Rcpp::depends(RcppArmadillo)]]
+// [[Rcpp::export]]
+mat mainSampler_mv(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::List& hyper, const Rcpp::List& mcmc) {
+    mat X = Rcpp::as<mat>(data["X"]);
+    // Constants
+    const uvec ids = Rcpp::as<uvec>(data["ids"]);
+    const uvec n_ns = Rcpp::as<uvec>(data["n_ns"]);
+    const uvec neighbors = Rcpp::as<uvec>(data["neighbors"]);
+    const umat mis_inds = Rcpp::as<umat>(data["mis_inds"])-1; // Indices are subtracted 1 from R
+    const uvec small_inds = Rcpp::as<uvec>(data["small_inds"])-1; // Indices are subtracted 1 from R
+    
+    const mat prec_y = Rcpp::as<mat>(hyper["prec_y"]);
+    const mat r_y = chol(prec_y); // Pass in a decomposed matrix
+    // const mat prec_x = Rcpp::as<mat>(hyper["prec_x"]);
+    const double rho = hyper["rho"];
+    const double c0 = hyper["c0"];
+    const double beta_var0 = hyper["beta_var0"];
+    
+    const int I = mcmc["I"];
+    const int burnin = mcmc["burnin"];
+
+    // Pass-in-references
+    mat Y = Rcpp::as<mat>(data["Y"]);
+    vec beta = Rcpp::as<vec>(inits["beta"]);
+    vec c2 = Rcpp::as<vec>(inits["c2"]);
+    // cube gamma = Rcpp::as<cube>(inits["gamma"]);
+    mat theta = Rcpp::as<mat>(inits["theta"]);
+    double sig2inv = inits["sig2inv"];
+    vec tau2invs = Rcpp::as<vec>(inits["tau2invs"]);
+    // double tau2inv = inits["tau2inv"];
+
+    // Auxiliary containers for sampling
+    vec beta_diags(beta.n_rows);
+    beta_diags.fill(beta_var0);
+    beta_diags.rows(small_inds) %= c2;
+    vec mnorms_v(beta.n_rows, fill::zeros);
+    mat beta_m(X.n_cols, Y.n_cols, fill::zeros);
+    // mat gamma_m(Y.n_rows, Y.n_cols, fill::zeros);
+    vec lpd(Y.n_rows, fill::zeros); // Log point-wise likelihoods
+    
+    mat out = mat(beta.n_rows+1+small_inds.n_rows+Y.n_rows+Y.n_rows, I-burnin, fill::zeros);
+    for (uword iter = 0; iter < I; ++iter) {
+        nextmove_betaSigma(beta, sig2inv, mnorms_v, beta_m, X, Y, tau2invs, theta, beta_diags, rho);
+        nextmove_tau2invs(tau2invs, X, Y, beta_m, sig2inv, ids, r_y);
+        nextmove_c2(c2, beta_diags, beta, sig2inv, small_inds, c0, beta_var0);
+        nextmove_theta(theta, Y, X, beta_m, tau2invs, sig2inv, rho, r_y);
+        impute_car(Y, X * beta_m + theta, tau2invs, sig2inv, rho, mis_inds, n_ns, neighbors);
+        lpd = arma::sum(ldnorm_v(Y, X * beta_m + theta, arma::pow(tau2invs * sig2inv, -.5)), 1); // Update log pointwise densities
+        
+        if (iter > burnin-1) {
+            // FIXME: unsigned int comparison. burnin=0 leads to error
+            uword keep_iter = iter - burnin;
+            out(span(0, beta.n_rows-1), keep_iter) = beta;
+            out(beta.n_rows, keep_iter) = sig2inv;
+            out(span(beta.n_rows+1, beta.n_rows+small_inds.n_rows), keep_iter) = c2;
+            out(span(beta.n_rows+small_inds.n_rows+1, beta.n_rows+small_inds.n_rows+Y.n_rows), keep_iter) = tau2invs;
+            out(span(beta.n_rows+small_inds.n_rows+Y.n_rows+1, out.n_rows-1), keep_iter) = lpd;
+        }
+    }
+    return out;
+}

@@ -166,24 +166,25 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
     vec mnorms_v(beta.n_rows, fill::zeros);
     mat beta_m(X.n_cols, Y.n_cols, fill::zeros);
     mat gamma_m(Y.n_rows, Y.n_cols, fill::zeros);
-    mat lpd(Y.n_rows, Y.n_cols, fill::zeros); // Log point-wise likelihoods
+    vec lpd(Y.n_rows, fill::zeros); // Log point-wise likelihoods
     
-    mat out = mat(beta.n_rows+1+1+small_inds.n_rows+Y.n_elem, I-burnin, fill::zeros);
+    mat out = mat(beta.n_rows+1+1+small_inds.n_rows+Y.n_rows, I-burnin, fill::zeros);
     for (uword iter = 0; iter < I; ++iter) {
         nextmove_betaSigma(beta, sig2inv, mnorms_v, beta_m, X, Y, gamma_m, theta, beta_diags, rho);
         nextmove_gammaTau(gamma, tau2inv, gamma_m, X, Y, beta_m, sig2inv, ids, r_y, prec_x);
         nextmove_c2(c2, beta_diags, beta, sig2inv, small_inds, c0, beta_var0);
         nextmove_theta(theta, Y, X, beta_m, gamma_m, sig2inv, rho, r_y);
         impute_car(Y, X * beta_m + gamma_m + theta, sig2inv, rho, mis_inds, n_ns, neighbors);
-        lpd = ldnorm_v(Y, X * beta_m + gamma_m + theta, sig2inv); // Update log pointwise densities
+        lpd = arma::sum(ldnorm_v(Y, X * beta_m + gamma_m + theta, std::pow(sig2inv, -.5)), 1); // Update log pointwise densities
         
         if (iter > burnin-1) {
+            // FIXME: unsigned int comparison. burnin=0 leads to error
             uword keep_iter = iter - burnin;
             out(span(0, beta.n_rows-1), keep_iter) = beta;
             out(beta.n_rows, keep_iter) = sig2inv;
             out(beta.n_rows+1, keep_iter) = tau2inv;
             out(span(beta.n_rows+2, beta.n_rows+small_inds.n_rows+1), keep_iter) = c2;
-            out(span(beta.n_rows+small_inds.n_rows+2, out.n_rows-1), keep_iter) = vectorise(lpd);
+            out(span(beta.n_rows+small_inds.n_rows+2, out.n_rows-1), keep_iter) = lpd;
         }
     }
     return out;

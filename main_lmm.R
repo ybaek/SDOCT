@@ -25,7 +25,7 @@ mcmc <- list(I = 1800, burnin = 300)
 
 # Compile the Gibbs sampler routine
 library(Rcpp)
-sourceCpp("samplers.cpp")
+sourceCpp("samplers_lmm.cpp")
 chain1 <- mainSampler_lmm(data, inits, hyper, mcmc)
 saveRDS(chain1, "./objects/samples_lmm1_cpp.Rds")
 

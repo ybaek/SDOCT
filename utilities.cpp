@@ -43,7 +43,6 @@ mat rnorm_v(const int M, const int N) {
 }
 
 // Normal log-density function, taking mat and returning mat
-// (Does NOT take in vec/mat standard deviation)
 
 // [[Rcpp::depends(RcppArmadillo)]]
 mat ldnorm_v(const mat& x, const mat& mu_m, const double sigma) {
@@ -53,6 +52,21 @@ mat ldnorm_v(const mat& x, const mat& mu_m, const double sigma) {
     for (uword j=0; j < static_cast<uword>(N); ++j) {
         for (uword i=0; i < static_cast<uword>(M); ++i) {
             densities(i,j) = R::dnorm(x(i,j), mu_m(i,j), sigma, 1);
+        }
+    }
+    return densities;
+}
+
+// Overloaded ver. with row-specific std. dev.'s (diagonal weights)
+
+// [[Rcpp::depends(RcppArmadillo)]]
+mat ldnorm_v(const mat& x, const mat& mu_m, const vec& sigma) {
+    const int M = x.n_rows;
+    const int N = x.n_cols;
+    mat densities(M, N);
+    for (uword j=0; j < static_cast<uword>(N); ++j) {
+        for (uword i=0; i < static_cast<uword>(M); ++i) {
+            densities(i,j) = R::dnorm(x(i,j), mu_m(i,j), sigma(i), 1);
         }
     }
     return densities;
