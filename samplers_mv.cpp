@@ -11,25 +11,24 @@ using namespace arma;
 
 // [[Rcpp::depends(RcppArmadillo)]]
 void nextmove_betaSigma(vec& beta, double& sig2inv, vec& mnorms_v, mat& beta_m,
-                        mat X, const mat& Y, const vec& tau2invs, const mat& theta,
+                        const mat& X, const mat& Y, const vec& tau2invs, const mat& theta,
                         const vec& beta_diags, double rho) {
-    // Note X was passed in by value
+    // Should I just pass X by value?
     const uword N = X.n_rows;
     const uword P = X.n_cols;
     const uword Q = Y.n_cols;
     double sig_tr_total = 0.0; // Accumulates all the needed traces for sampling sig2inv
-    mat centered = Y - theta;
-    centered.each_col() /= arma::sqrt(tau2invs);
-    const vec beta_umean = vectorise(X.t() * centered);
-    vec inorms = rnorm_v(static_cast<int>(P*Q));
     // Added step: weight each column by patient-wise tau's
-    X.each_col() /= arma::sqrt(tau2invs); 
+    mat Xd = X; Xd.each_col() /= arma::sqrt(tau2invs);
+    mat centered = Y - theta; centered.each_col() /= arma::sqrt(tau2invs);
+    const vec beta_umean = vectorise(Xd.t() * centered);
+    vec inorms = rnorm_v(static_cast<int>(P*Q));
     // Iterate the diagonal Q blocks and accumulate Cholesky factors separately
     for (uword q=1; q < Q+1; ++q) {
         uword start = (q-1)*P;
         uword end = q*P-1;
         // Decompose R'R = Prior precision[inds] + (1-rho)*Z'DZ
-        mat w_xtdx = (1.0-rho) * X.t() * X; // self-product of X, weighted by 1-rho
+        mat w_xtdx = (1.0-rho) * Xd.t() * Xd; // self-product of X, weighted by 1-rho
         w_xtdx.diag() += 1.0/beta_diags(span(start, end));
         mat chol_m = chol(w_xtdx);
         // Solve for R'x = vec Z'(Y-all the rest mean) and store
