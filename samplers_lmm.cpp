@@ -169,7 +169,7 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
     vec lpd(Y.n_rows, fill::zeros); // Log point-wise likelihoods
     
     mat out = mat(beta.n_rows+1+1+small_inds.n_rows+Y.n_rows, I-burnin, fill::zeros);
-    for (uword iter = 0; iter < I; ++iter) {
+    for (uword iter = 0; iter < static_cast<uword>(I); ++iter) {
         nextmove_betaSigma(beta, sig2inv, mnorms_v, beta_m, X, Y, gamma_m, theta, beta_diags, rho);
         nextmove_gammaTau(gamma, tau2inv, gamma_m, X, Y, beta_m, sig2inv, ids, r_y, prec_x);
         nextmove_c2(c2, beta_diags, beta, sig2inv, small_inds, c0, beta_var0);
@@ -177,7 +177,7 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
         impute_car(Y, X * beta_m + gamma_m + theta, sig2inv, rho, mis_inds, n_ns, neighbors);
         lpd = arma::sum(ldnorm_v(Y, X * beta_m + gamma_m + theta, std::pow(sig2inv, -.5)), 1); // Update log pointwise densities
         
-        if (iter > burnin-1) {
+        if (iter >= static_cast<uword>(burnin)) {
             // FIXME: unsigned int comparison. burnin=0 leads to error
             uword keep_iter = iter - burnin;
             out(span(0, beta.n_rows-1), keep_iter) = beta;

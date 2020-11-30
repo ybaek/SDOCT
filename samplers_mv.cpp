@@ -19,8 +19,8 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, vec& mnorms_v, mat& beta_m,
     const uword Q = Y.n_cols;
     double sig_tr_total = 0.0; // Accumulates all the needed traces for sampling sig2inv
     // Added step: weight each column by patient-wise tau's
-    mat Xd = X; Xd.each_col() /= arma::sqrt(tau2invs);
-    mat centered = Y - theta; centered.each_col() /= arma::sqrt(tau2invs);
+    mat Xd = X; Xd.each_col() %= arma::sqrt(tau2invs);
+    mat centered = Y - theta; centered.each_col() %= arma::sqrt(tau2invs);
     const vec beta_umean = vectorise(Xd.t() * centered);
     vec inorms = rnorm_v(static_cast<int>(P*Q));
     // Iterate the diagonal Q blocks and accumulate Cholesky factors separately
@@ -95,7 +95,7 @@ void nextmove_theta(mat& theta, const mat& Y, const mat& X, const mat& beta_m, c
     mat post_mean_t = forbacksolve(r_y, centered.t()) * (1.0-rho);
     mat post_mnorms_t = backsub(r_y, rnorm_v(Q, N)) / sig2inv;
     // Added step: weight each column by patient-wise tau's
-    post_mnorms_t.each_col() /= arma::sqrt(tau2invs);
+    post_mnorms_t.each_row() %= arma::sqrt(tau2invs).as_row();
     theta = post_mean_t.t() + post_mnorms_t.t();
     vec rowMeans = arma::mean(theta, 1); // For sum-to-zero constraint of each image effect
     theta.each_col() -= rowMeans;
@@ -126,7 +126,6 @@ void impute_car(mat& target, const mat& means, const vec& tau2invs, const double
      }
  }
 
-// TODO: modify the Gibbs sampler
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::export]]
 mat mainSampler_mv(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::List& hyper, const Rcpp::List& mcmc) {
@@ -168,7 +167,7 @@ mat mainSampler_mv(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::
     vec lpd(Y.n_rows, fill::zeros); // Log point-wise likelihoods
     
     mat out = mat(beta.n_rows+1+small_inds.n_rows+Y.n_rows+Y.n_rows, I-burnin, fill::zeros);
-    for (uword iter = 0; iter < I; ++iter) {
+    for (uword iter = 0; iter < static_cast<uword>(I); ++iter) {
         nextmove_betaSigma(beta, sig2inv, mnorms_v, beta_m, X, Y, tau2invs, theta, beta_diags, rho);
         nextmove_tau2invs(tau2invs, X, Y, beta_m, sig2inv, ids, r_y);
         nextmove_c2(c2, beta_diags, beta, sig2inv, small_inds, c0, beta_var0);
@@ -176,8 +175,7 @@ mat mainSampler_mv(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp::
         impute_car(Y, X * beta_m + theta, tau2invs, sig2inv, rho, mis_inds, n_ns, neighbors);
         lpd = arma::sum(ldnorm_v(Y, X * beta_m + theta, arma::pow(tau2invs * sig2inv, -.5)), 1); // Update log pointwise densities
         
-        if (iter > burnin-1) {
-            // FIXME: unsigned int comparison. burnin=0 leads to error
+        if (iter >= static_cast<uword>(burnin)) {
             uword keep_iter = iter - burnin;
             out(span(0, beta.n_rows-1), keep_iter) = beta;
             out(beta.n_rows, keep_iter) = sig2inv;
