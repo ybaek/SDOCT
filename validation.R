@@ -1,7 +1,7 @@
 # A function to validate test set prediction 
 # by using the mean thicknesses as predictor for another logistic regression
 validate_roc <- function(coef_train, labels, train, test, X, Y) {
-  library(pROC)
+  if (!isNamespaceLoaded("pROC")) require(pROC)
   predicted_train <- as.data.frame(X %*% coef_train)
   colnames(predicted_train) <- paste0("V", 1:dim(predicted_train)[2]) # To avoid formula errors
   df_train <- cbind.data.frame(labels = labels[train], predicted_train[train,])
