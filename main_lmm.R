@@ -28,8 +28,8 @@ inits1 <- list( beta = c(coef(lm(data$Y ~ data$X - 1))),
 inits1$theta <- (data$Y - data$X %*% matrix(inits1$beta, ncol(data$X))) * matrix(rnorm(nrow(data$Y)*ncol(data$Y)), nrow(data$Y))
 
 inits2 <- list( beta = c(coef(lm(data$Y ~ data$X - 1))),
-               sig2inv = 1, c2 = rep(.25^2, length(data$small_inds)),
-               theta = matrix(0, nrow(data$Y), ncol(data$Y)) )
+                c2 = rep(.25^2, length(data$small_inds)),
+                theta = matrix(0, nrow(data$Y), ncol(data$Y)) )
 inits2$theta <- inits1$theta
 for (j in 1:max(data$ids)) inits2$tau2invs[data$ids == j] <- rgamma(1, .5, .5)
 
