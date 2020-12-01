@@ -94,8 +94,8 @@ void nextmove_theta(mat& theta, const mat& Y, const mat& X, const mat& beta_m, c
     const mat centered = Y - X * beta_m;
     mat post_mean_t = forbacksolve(r_y, centered.t()) * (1.0-rho);
     mat post_mnorms_t = backsub(r_y, rnorm_v(Q, N)) / sig2inv;
-    // Added step: weight each column by patient-wise tau's
-    post_mnorms_t.each_row() %= arma::sqrt(tau2invs).as_row();
+    // Added step: weight each column by patient-wise tau's (Here VARIANCE not precisions!)
+    post_mnorms_t.each_row() /= arma::sqrt(tau2invs).as_row();
     theta = post_mean_t.t() + post_mnorms_t.t();
     vec rowMeans = arma::mean(theta, 1); // For sum-to-zero constraint of each image effect
     theta.each_col() -= rowMeans;
