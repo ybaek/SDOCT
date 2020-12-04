@@ -41,5 +41,6 @@ vignettes/*.pdf
 ####
 data/*
 objects/*
+images/*
 .vscode/*
 *.o
