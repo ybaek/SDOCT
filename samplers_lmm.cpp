@@ -44,34 +44,48 @@ void nextmove_betaSigma(vec& beta, double& sig2inv, vec& mnorms_v, mat& beta_m,
     beta_m = reshape(beta, P, Q);
 }
 
-// 2. Random coefficient matrices + hierarchical (nugget/spatial) precision
+// 2. Random coefficient matrices + hierarchical precision matrix
 // Assumes a random effects matrix derived by Z(j,) * gamma(,,j) 
+// Precision matrix has a Wishart prior
 
 // [[Rcpp::depends(RcppArmadillo)]]
-void nextmove_gammaTau(cube& gamma, double& tau2inv, mat& gamma_m,
-                       const mat& X, const mat& Y, const mat& beta_m, const double sig2inv,
-                       const uvec& ids, const mat& r_y, const mat& prec_x) {
+void nextmove_gamma(cube& gamma, mat& gamma_m, const mat& psi,
+                    const mat& X, const mat& Y, const mat& beta_m, const double sig2inv,
+                    const uvec& ids, const mat& r_y) {
     const uword P = X.n_cols;
     const uword Q = Y.n_cols;
     const uword J = ids.max();
-    double sse = 0.0; // Keep track of all traces needed for sampling tau2inv AFTER loop
     for (uword j = 1; j < J+1; ++j) { // Group label ints are from R and thus start from 1
         uvec jinds = find(ids==j);
         const mat X_slice = X.rows(jinds);
         const mat Y_slice = Y.rows(jinds);
         const mat centered = Y_slice - X_slice * beta_m;
         // Decompose R'R = tau^-2 * precision_row + Z[j,]'Z[j,] (row-wise covariance)
-        mat post_prec_chol = chol(tau2inv*prec_x + X_slice.t() * X_slice);
+        mat post_prec_chol = chol(psi + X_slice.t() * X_slice);
         // Solve for R'R(posterior mean) = vec Z'(Y-rest)
         // Also solve for (R(MN matrix)R_y')' = (PxQ normal matrix) where R_y is static (col-wise covariance Cholesky)
         // and set gamma[,,j] <- posterior mean + MN matrix / (sigma^-2 * tau^-2)
-        gamma.slice(j-1) = altbacksolve(post_prec_chol, r_y, rnorm_v(P, Q)) / (sig2inv*tau2inv) + 
+        gamma.slice(j-1) = altbacksolve(post_prec_chol, r_y, rnorm_v(P, Q)) / sig2inv + 
             forbacksolve(post_prec_chol, X_slice.t() * centered);
         gamma_m.rows(jinds) = X_slice * gamma.slice(j-1);
-        sse += trace(r_y.t() * r_y * gamma.slice(j-1).t() * prec_x * gamma.slice(j-1));
     }
-    // Remember scale parameter takes the inverse of rate (usually used in R)
-    tau2inv = R::rgamma(.5+static_cast<double>(.5*J*P*Q), 1.0/(.5+.5*sse*sig2inv));
+}
+
+// [[Rcpp::depends(RcppArmadillo)]]
+void nextmove_psi(mat& psi, const cube& gamma, 
+                  const double sig2inv, const mat& cov_x, const mat& r_y) {
+    const uword P = gamma.n_rows;
+    const uword Q = gamma.n_cols;
+    const uword K = gamma.n_slices;
+    double post_df = static_cast<double>(.5 * (1 + P + K * Q));
+    mat post_prec(P, Q, fill::zeros);
+    for (uword k = 0; k < K; ++k) {
+        mat temp = gamma.slice(k) * r_y;
+        post_prec += temp * temp.t();
+    }
+    post_prec *= sig2inv;
+    mat post_r = chol(post_prec + cov_x); // Inverse scale is the (sparse) covariance
+    psi = rWishart(post_df, post_r);
 }
 
 // 3. Sampling hierarchical parameters for beta (c2)
@@ -142,7 +156,7 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
     
     const mat prec_y = Rcpp::as<mat>(hyper["prec_y"]);
     const mat r_y = chol(prec_y); // Pass in a decomposed matrix
-    const mat prec_x = Rcpp::as<mat>(hyper["prec_x"]);
+    const mat cov_x = Rcpp::as<mat>(hyper["cov_x"]);
     const double rho = hyper["rho"];
     const double c0 = hyper["c0"];
     const double beta_var0 = hyper["beta_var0"];
@@ -155,6 +169,7 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
     vec beta = Rcpp::as<vec>(inits["beta"]);
     vec c2 = Rcpp::as<vec>(inits["c2"]);
     cube gamma = Rcpp::as<cube>(inits["gamma"]);
+    mat psi = Rcpp::as<mat>(inits["psi"]);
     mat theta = Rcpp::as<mat>(inits["theta"]);
     double sig2inv = inits["sig2inv"];
     double tau2inv = inits["tau2inv"];
@@ -171,7 +186,8 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
     mat out = mat(beta.n_rows+1+1+small_inds.n_rows+Y.n_rows, I-burnin, fill::zeros);
     for (uword iter = 0; iter < static_cast<uword>(I); ++iter) {
         nextmove_betaSigma(beta, sig2inv, mnorms_v, beta_m, X, Y, gamma_m, theta, beta_diags, rho);
-        nextmove_gammaTau(gamma, tau2inv, gamma_m, X, Y, beta_m, sig2inv, ids, r_y, prec_x);
+        nextmove_gamma(gamma, gamma_m, psi, X, Y, beta_m, sig2inv, ids, r_y);
+        nextmove_psi(psi, gamma, sig2inv, cov_x, r_y);
         nextmove_c2(c2, beta_diags, beta, sig2inv, small_inds, c0, beta_var0);
         nextmove_theta(theta, Y, X, beta_m, gamma_m, sig2inv, rho, r_y);
         impute_car(Y, X * beta_m + gamma_m + theta, sig2inv, rho, mis_inds, n_ns, neighbors);
@@ -182,9 +198,8 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
             uword keep_iter = iter - burnin;
             out(span(0, beta.n_rows-1), keep_iter) = beta;
             out(beta.n_rows, keep_iter) = sig2inv;
-            out(beta.n_rows+1, keep_iter) = tau2inv;
-            out(span(beta.n_rows+2, beta.n_rows+small_inds.n_rows+1), keep_iter) = c2;
-            out(span(beta.n_rows+small_inds.n_rows+2, out.n_rows-1), keep_iter) = lpd;
+            out(span(beta.n_rows+1, beta.n_rows+small_inds.n_rows), keep_iter) = c2;
+            out(span(beta.n_rows+small_inds.n_rows+1, out.n_rows-1), keep_iter) = lpd;
         }
     }
     return out;
