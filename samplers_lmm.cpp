@@ -182,7 +182,19 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
     mat gamma_m(Y.n_rows, Y.n_cols, fill::zeros);
     vec lpd(Y.n_rows, fill::zeros); // Log point-wise likelihoods
     
-    mat out = mat(beta.n_rows+1+small_inds.n_rows+Y.n_rows, I-burnin, fill::zeros);
+    // This line can take different values 
+    // depending on what parameters are stored
+    // TODO: give user the control!
+    int par1_length = beta.n_rows;
+    int par2_length = 1;
+    int par3_length = small_inds.n_rows; 
+    // Store the lower diagonal of psi, including main diagonal
+    uvec lower_inds = trimatl_ind(size(psi));
+    int par4_length = lower_inds.n_rows;
+    int par5_length = Y.n_rows;
+    int out_length = par1_length + par2_length + par3_length + par4_length + par5_length;
+    mat out = mat(out_length, I-burnin, fill::zeros);
+
     for (uword iter = 0; iter < static_cast<uword>(I); ++iter) {
         nextmove_betaSigma(beta, sig2inv, mnorms_v, beta_m, X, Y, gamma_m, theta, beta_diags, rho);
         nextmove_gamma(gamma, gamma_m, psi, X, Y, beta_m, sig2inv, ids, r_y);
@@ -195,10 +207,11 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
         if (iter >= static_cast<uword>(burnin)) {
             // FIXME: unsigned int comparison. burnin=0 leads to error
             uword keep_iter = iter - burnin;
-            out(span(0, beta.n_rows-1), keep_iter) = beta;
-            out(beta.n_rows, keep_iter) = sig2inv;
-            out(span(beta.n_rows+1, beta.n_rows+small_inds.n_rows), keep_iter) = c2;
-            out(span(beta.n_rows+small_inds.n_rows+1, out.n_rows-1), keep_iter) = lpd;
+            out(span(0, par1_length-1), keep_iter) = beta;
+            out(par1_length, keep_iter) = sig2inv;
+            out(span(par1_length+par2_length, par1_length+par2_length+par3_length-1), keep_iter) = c2;
+            out(span(par1_length+par2_length+par3_length, out_length-par5_length-1), keep_iter) = psi(lower_inds);
+            out(span(out_length-par5_length, out_length-1), keep_iter) = lpd;
         }
     }
     return out;
