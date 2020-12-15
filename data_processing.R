@@ -112,6 +112,7 @@ cs_data <- subset(cs_data, examdate.y - examdate.x <= 180)
 cs_data$group <- 0
 cs_data$group[cs_data$patientid %in% idMatches_tr] <- 1
 ## 393 eyes, 333 glaucoma, 60 healthy, no subunits
+cs_data <- cs_data[,-291]
 saveRDS(cs_data, file = "./data/smallest.Rds")
 ####
 
