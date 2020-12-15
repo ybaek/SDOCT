@@ -78,7 +78,7 @@ void nextmove_psi(mat& psi, const cube& gamma,
     const uword Q = gamma.n_cols;
     const uword K = gamma.n_slices;
     double post_df = static_cast<double>(.5 * (1 + P + K * Q));
-    mat post_prec(P, Q, fill::zeros);
+    mat post_prec(P, P, fill::zeros);
     for (uword k = 0; k < K; ++k) {
         mat temp = gamma.slice(k) * r_y;
         post_prec += temp * temp.t();
@@ -182,7 +182,7 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
     mat gamma_m(Y.n_rows, Y.n_cols, fill::zeros);
     vec lpd(Y.n_rows, fill::zeros); // Log point-wise likelihoods
     
-    mat out = mat(beta.n_rows+1+1+small_inds.n_rows+Y.n_rows, I-burnin, fill::zeros);
+    mat out = mat(beta.n_rows+1+small_inds.n_rows+Y.n_rows, I-burnin, fill::zeros);
     for (uword iter = 0; iter < static_cast<uword>(I); ++iter) {
         nextmove_betaSigma(beta, sig2inv, mnorms_v, beta_m, X, Y, gamma_m, theta, beta_diags, rho);
         nextmove_gamma(gamma, gamma_m, psi, X, Y, beta_m, sig2inv, ids, r_y);

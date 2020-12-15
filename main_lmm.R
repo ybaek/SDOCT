@@ -9,7 +9,8 @@ A <- adj_grid(8)
 data <- input[c("small_inds", "zmeans", "ymeans", "labels")]
 data$X <- input$Z_s[input$train,]
 data$Y <- input$Y_s[input$train,]
-# data$ids <- input$ids[input$train]
+# ID's (which are just row numbers)
+data$ids <- seq(1, nrow(data$Y))
 data$mis_inds <- which(is.na(data$Y), arr.ind = TRUE)
 data$mis_adjs <- apply(A[unique(data$mis_inds)[,2],], 1, function(x) which(!!x))
 data$Y[data$mis_inds] <- rnorm(dim(data$mis_inds)[1]) * 3 # Initialize the missing values
@@ -19,21 +20,18 @@ hyper <- list(rho = .99, beta_var0 = 100, c0 = 1 / 3)
 l <- 15 / 768 * (2 * pi) 
 hyper$prec_y <- hyper$rho * input$Lap + 
     diag(1.0 - hyper$rho, ncol(data$Y))
-hyper$prec_x <- solve(wendland_c2(input$distMat, l))
+hyper$cov_x <- wendland_c2(input$distMat, l)
 
 # Passing in initial values of all parameters (model 1 vs. model 2)
 inits1 <- list(beta = c(coef(lm(data$Y ~ data$X - 1))),
-               sig2inv = 1, tau2inv = 1, c2 = rep(.25^2, length(data$small_inds)),
-               gamma = array(0, dim = c(ncol(data$X), ncol(data$Y), nrow(data$X))),
-               theta = matrix(0, nrow(data$Y), ncol(data$Y)) )
+               sig2inv = 1,
+               c2 = rep(.25^2, length(data$small_inds)),
+               gamma = array(0, dim = c(ncol(data$X), ncol(data$Y), length(data$ids))),
+               psi = rWishart(1, ncol(data$X) + 1, solve(hyper$cov_x))[, , 1],
+               theta = matrix(0, nrow(data$Y), ncol(data$Y)))
 inits1$theta <- (data$Y - data$X %*% matrix(inits1$beta, ncol(data$X))) * matrix(rnorm(nrow(data$Y)*ncol(data$Y)), nrow(data$Y))
-# ID's (which are just row numbers)
-# inits1$ids <- seq(1, nrow(data$Y))
 
 mcmc <- list(I = 1800, burnin = 300)
-
-
-
 
 # Compile the Gibbs sampler routine
 library(Rcpp)
