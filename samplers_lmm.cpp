@@ -172,7 +172,6 @@ mat mainSampler_lmm(const Rcpp::List& data, const Rcpp::List& inits, const Rcpp:
     mat psi = Rcpp::as<mat>(inits["psi"]);
     mat theta = Rcpp::as<mat>(inits["theta"]);
     double sig2inv = inits["sig2inv"];
-    double tau2inv = inits["tau2inv"];
 
     // Auxiliary containers for sampling
     vec beta_diags(beta.n_rows);
