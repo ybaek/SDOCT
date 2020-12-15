@@ -81,6 +81,27 @@ double rgigRcpp(const double Lambda, const double Chi, const double Psi) {
     return Rcpp::as<double>(rgigSEXP);
 }
 
+// Wishart RNG using Bartlett's decomposition
+// For easy Gibbs use, accepts a Cholesky factor on the inverse scale
+// (rWishart is NOT in Rmath.h, so need to create a function to one's needs)
+
+mat rWishart(const double df, const mat r_inverse) {
+    // r_inverse is the Cholesky factor of the INVERSE scale matrix
+    // E[Wishart draw] = df * inverse(r_inverse' * r_inverse)
+    const uword P = r_inverse.n_rows; // dimension of the Wishart draw
+    mat normals(P, P, fill::zeros);
+    normals(0, 0) = R::rchisq(df);
+    for (uword i = 1; i < P; ++i) {
+        normals(i, i) = R::rchisq(static_cast<double>(df - i));
+        for (uword j = 0; j < i; ++j) {
+            normals(i, j) = R::rnorm(0.0, 1.0);
+        }
+    }
+    mat prod = normals * normals.t();
+    mat out = altbacksolve(r_inverse, r_inverse, prod);
+    return out;
+}
+
 // Linear algebra functions suitable for 
 // multivariate Gaussian full conditional sampling
 
