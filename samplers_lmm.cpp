@@ -77,11 +77,10 @@ void nextmove_psi(mat& psi, const cube& gamma,
     const uword P = gamma.n_rows;
     const uword Q = gamma.n_cols;
     const uword K = gamma.n_slices;
-    double post_df = static_cast<double>(.5 * (1 + P + K * Q));
+    double post_df = static_cast<double>(1 + P  + .5 * (K * Q));
     mat post_prec(P, P, fill::zeros);
     for (uword k = 0; k < K; ++k) {
-        mat temp = gamma.slice(k) * r_y;
-        post_prec += temp * temp.t();
+        post_prec += gamma.slice(k) * r_y * r_y.t() * gamma.slice(k).t();
     }
     post_prec *= sig2inv;
     mat post_r = chol(post_prec + cov_x); // Inverse scale is the (sparse) covariance
@@ -126,18 +125,18 @@ void impute_car(mat& target, const mat& means, const double prec, const double r
     // O/w erroneous results -- it'll be best to pre-process in R 
     uword counter = 0;
     uvec mis_rows = mis_inds.col(0);
+    uvec mis_cols = mis_inds.col(1);
     for (uword j = 0; j < mis_inds.n_rows; ++j) { // iterate across locations
-        const uword mis_loc = mis_inds(j,1);
+        const uword mis_unit = mis_rows(j);
+        const uword mis_loc = mis_cols(j);
         const uvec curr_n = neighbors(span(counter,counter+n_ns(j)-1))-1;
-        const double denom = n_ns(j)*rho+1-rho;
-        for (const uword& i : mis_rows) { // iterate across patients
-            const rowvec target_i = target.row(i);
-            const rowvec curr_n_i = target_i.cols(curr_n); 
-            const double mis_mean = means(i,mis_loc);
-             target(i,mis_loc) = (rho*accu(curr_n_i) + (1.0-rho)*mis_mean) / denom + 
-                 R::rnorm(0.0,1.0) / std::sqrt(prec * denom);
-         }
-         counter += n_ns(j);
+        const double denom = n_ns(j)*rho + 1.0 - rho;
+        const rowvec target_i = target.row(mis_unit);
+        const rowvec curr_n_i = target_i.cols(curr_n); 
+        const double mis_mean = means(mis_unit, mis_loc);
+        target(mis_unit, mis_loc) = (rho*accu(curr_n_i) + (1.0-rho)*mis_mean) / denom + 
+            R::rnorm(0.0, 1.0) / std::sqrt(prec * denom);
+        counter += n_ns(j);
      }
  }
 
