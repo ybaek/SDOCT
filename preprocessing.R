@@ -11,10 +11,16 @@ Y <- sweep(as.matrix(df[,(2+288+1):(2+288+64)]), 2, pseudomean_Y, "-")
 set.seed(2020 - 12 - 15)
 # J <- max(ids)
 N <- dim(df)[1]
-train <- sort(sample(N, N*.8))
-test <- setdiff(1:N, train)
-train_rows_bool <- ids %in% train
-test_rows_bool <- ids %in% test
+# Partition: K-fold validation
+K <- 10L
+modK <- N %/% K
+test <- vector("list", K)
+train <- vector("list", K)
+for (k in seq(K)) {
+    test[[k]] <- seq((k - 1) * modK + 1, k * modK)
+    if (k == K) test[[k]] <- seq((k - 1) * modK + 1, N)
+    train[[k]] <- setdiff(1:N, test[[k]])
+}
 # Prior information
 source("./adj_grid.R")
 source("./prior_distances.R")
@@ -40,5 +46,5 @@ ymeans <- attr(Y_s, "scaled:center")
 data <- list(Z_s = Z_s, Y_s = Y_s, zmeans = zmeans, ymeans = ymeans,
              small_inds = small_inds, distMat = distMat, Lap = Lap,
              # ids = ids,
-             train = train_rows_bool, test = test_rows_bool, labels = labels)
+             train = train, test = test, labels = labels)
 saveRDS(data, file = "./data/fit_data.Rds")
