@@ -55,7 +55,6 @@ rm(list = c("ipl", "gcl", "cpRnfl"))
 # An array of statistics that may be considered as "centering"
 # from thicknesses to deviations (arbitrary!)
 # Will need to separate this code -- for now, leaving this as blank
-
 cpRnfl_sample <- cpRnfl_sample[, c("PatientID", "ExamDate", "Eye", incl_t)]
 cpRnfl_sample[, incl_t] <- apply(cpRnfl_sample[, incl_t], 2, as.numeric)
 ipl_sample <- ipl_sample[, c("maskedid", "examdate", "eye", incl_col1)]
@@ -125,4 +124,11 @@ cs_data$group <- 0L
 cs_data$group[cs_data$patientid %in% idMatches_tr] <- 1L
 colnames(cs_data)[3] <- "examdate"
 cs_data <- cs_data[, -which(colnames(cs_data) == "examdate.y")]
-saveRDS(cs_data, file = "./data/smallest.Rds")
+# Save in form of several objects
+dataset <- list(
+  Z = as.matrix(cs_data[, grep("rnfl", colnames(cs_data))]),
+  Y = as.matrix(cs_data[, grep("mean", colnames(cs_data))]),
+  id = as.integer(as.factor(cs_data$patientid)),
+  group = cs_data$group
+)
+saveRDS(dataset, file = "./data/dataset.Rds")
