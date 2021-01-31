@@ -1,13 +1,17 @@
 #
-# Preprocessing steps: LAST UPDATED Dec. 13, 2020
+# Preprocessing steps: LAST UPDATED Jan. 31, 2021
 #
 # Remember Alessandro's comment:
-# "There is sth to be said about either GCL ONLY or GCC+ 
+# "There is sth to be said about either GCL ONLY or GCC+
 # (Spectralis has higher resolution but we go with previous conventions)"
 #
 # Sam's idea:
 # "We want to keep this strictly cross-sectional--
 # for now, just single image per patient, the most recent pair of macula + RNFL"
+#
+# Dr. Medeiros' point:
+# "We want to keep both right and left eye. No reason NOT to!!!"
+# (Prob. Sam mentioned this too at some point but it got missed on me)
 #
 gcl <- read.csv("./data/gcl.csv") # includes ILM
 ipl <- read.csv("./data/ipl.csv") # includes GCL
@@ -15,10 +19,10 @@ cpRnfl <- read.csv("./data/rnfl.csv")
 healthy_mrns_c <- read.csv("./data/healthy_ids.csv", header = FALSE)$V1
 # Macula: need to flip the grid if the eye is left!
 for (i in 1:8) {
-  gcl[gcl$eye=="L", (12 + 8*(i-1) + 1):(12 + 8*i)] <-
-    rev(gcl[gcl$eye=="L", (12 + 8*(i-1) + 1):(12 + 8*i)])
-  ipl[ipl$eye=="L", (12 + 8*(i-1) + 1):(12 + 8*i)] <-
-    rev(ipl[ipl$eye=="L", (12 + 8*(i-1) + 1):(12 + 8*i)])
+  gcl[gcl$eye == "L", (12 + 8 * (i - 1) + 1):(12 + 8 * i)] <-
+  rev(gcl[gcl$eye == "L", (12 + 8 * (i - 1) + 1):(12 + 8 * i)])
+  ipl[ipl$eye == "L", (12 + 8 * (i - 1) + 1):(12 + 8 * i)] <-
+  rev(ipl[ipl$eye == "L", (12 + 8 * (i - 1) + 1):(12 + 8 * i)])
 }
 
 # Joining the tables by Subject ID
@@ -29,119 +33,96 @@ idMatches <- intersect(
 idMatches_ctr <- intersect(idMatches, healthy_mrns_c) # Healthy control (64)
 idMatches_tr <- setdiff(idMatches, healthy_mrns_c) # Treatment group (442)
 
-# Pre-processing cpRNFL
+# Pre-processing cpRNFL and GCL
 # (Indices included: cf. Fujino et al. 2018)
-incl.t <- paste("RNFLT", c(1:128, 609:768), sep = ".")
-Z_sample <- subset(cpRnfl, cpRnfl$PatientID %in% idMatches)
-Z_sample <- Z_sample[,c("PatientID", "ExamDate", incl.t)]
-#nas <- sum(apply(Z_sample[,incl.t], 2, function(x) sum(x=="n/a")))
-Z_sample[,incl.t] <- apply(Z_sample[,incl.t], 2, as.numeric) # n/a coerced into NA
-#nas == sum(is.na(Z_sample))
+# UPDATE: We may include some points in the superior quadrant too,
+# so including 288 points may not be the best practice!
+incl_t <- paste("RNFLT", 1:768, sep = ".")
+incl_col1 <- colnames(ipl)[grep("^mean", colnames(ipl))]
+incl_col2 <- colnames(gcl)[grep("^mean", colnames(gcl))]
 
-# Pre-processing macula GCC
-incl.col1 <- colnames(ipl)[grep("^mean", colnames(ipl))]
-incl.col2 <- colnames(gcl)[grep("^mean", colnames(gcl))]
-#
-ipl_matched <- subset(ipl, ipl$maskedid %in% idMatches)
-ipl_matched <- ipl_matched[, c("maskedid", "examdate", incl.col1)]
-# nas <- sum(apply(ipl_matched[,incl.col1], 2, function(x) sum(x=="n/a")))
-ipl_matched[,incl.col1] <- apply(ipl_matched[,incl.col1], 2, as.numeric) # n/a coerced into NA
-#nas == sum(is.na(ipl_matched))
-#
-gcl_matched <- subset(gcl, gcl$maskedid %in% idMatches)
-gcl_matched <- gcl_matched[, c("maskedid", "examdate", incl.col2)]
-# nas <- sum(apply(gcl_matched[,incl.col2], 2, function(x) sum(x=="n/a")))
-gcl_matched[,incl.col2] <- apply(gcl_matched[,incl.col2], 2, as.numeric) # n/a coerced into NA
-#nas == sum(is.na(gcl_matched))
+# Raw sample averages
+# UPDATE: instead of averaging, take 95% quartiles?? (Dr. Medeiros' idea)
+# Rationale: We want SIGNIFICANT DEVIATIONS
+ipl_sample    <- subset(ipl, maskedid %in% idMatches)
+gcl_sample    <- subset(gcl, maskedid %in% idMatches)
+cpRnfl_sample <- subset(cpRnfl, PatientID %in% idMatches)
+ipl_ctr    <- subset(ipl_sample, maskedid %in% idMatches)[, incl_col1]
+gcl_ctr    <- subset(gcl_sample, maskedid %in% idMatches)[, incl_col2]
+cpRnfl_ctr <- subset(cpRnfl_sample, PatientID %in% idMatches)[, incl_t]
+rm(list = c("ipl", "gcl", "cpRnfl"))
+
+# An array of statistics that may be considered as "centering"
+# from thicknesses to deviations (arbitrary!)
+# Will need to separate this code -- for now, leaving this as blank
+
+cpRnfl_sample <- cpRnfl_sample[, c("PatientID", "ExamDate", "Eye", incl_t)]
+cpRnfl_sample[, incl_t] <- apply(cpRnfl_sample[, incl_t], 2, as.numeric)
+ipl_sample <- ipl_sample[, c("maskedid", "examdate", "eye", incl_col1)]
+ipl_sample[, incl_col1] <- apply(ipl_sample[, incl_col1], 2, as.numeric)
+gcl_sample <- gcl_sample[, c("maskedid", "examdate", "eye", incl_col2)]
+gcl_sample[, incl_col2] <- apply(gcl_sample[, incl_col2], 2, as.numeric)
 
 # Let's change the column names with no weird characters
 # also match conventions between RNFL and GCL+IPL
-colnames(Z_sample)[1:2] <- c("patientid", "examdate")
-colnames(gcl_matched)[1] <- c("patientid")
-colnames(ipl_matched)[1] <- c("patientid")
-incl.t.mod <- unlist(lapply(strsplit(incl.t, "T\\."),
+colnames(cpRnfl_sample)[1:3] <- c("patientid", "examdate", "eye")
+colnames(gcl_sample)[1] <- c("patientid")
+colnames(ipl_sample)[1] <- c("patientid")
+incl_t_mod <- unlist(lapply(strsplit(incl_t, "T\\."),
   function(str) paste(str, collapse = "")))
 # Weird character UTF-8: raw hex c3 a2
-incl.col1.mod <- unlist(lapply(strsplit(incl.col1,
+incl_col1_mod <- unlist(lapply(strsplit(incl_col1,
   rawToChar(charToRaw("â"))), function(str) str[1]))
-incl.col2.mod <- unlist(lapply(strsplit(incl.col2,
+incl_col2_mod <- unlist(lapply(strsplit(incl_col2,
   rawToChar(charToRaw("â"))), function(str) str[1]))
-colnames(Z_sample)[-c(1:2)] <- tolower(incl.t.mod)
-colnames(gcl_matched)[-c(1:2)] <- incl.col1.mod
-colnames(ipl_matched)[-c(1:2)] <- incl.col2.mod
+colnames(cpRnfl_sample)[-c(1:3)] <- tolower(incl_t_mod)
+colnames(gcl_sample)[-c(1:3)] <- incl_col1_mod
+colnames(ipl_sample)[-c(1:3)] <- incl_col2_mod
 
 # Change date/times to POSIX-compliant formats (EST)
 # Get rid of dates older than the last RNFL measurement
 # Since ipl and gcl are exported from the same file,
 # they share all patient ID's and dates
-Z_sample$examdate <- as.Date(Z_sample$examdate, try = "%m/%d/%Y", tz = "EST")
-ipl_matched$examdate <- as.Date(ipl_matched$examdate, try = "%m/%d/%Y", tz = "EST")
-gcl_matched$examdate <- as.Date(gcl_matched$examdate, try = "%m/%d/%Y", tz = "EST")
-# Z_sample <- subset(Z_sample, Z_sample$examdate >= min(gcl_matched$examdate))
-# ipl_matched <- subset(ipl_matched, ipl_matched$examdate <= max(Z_sample$examdate))
-# gcl_matched <- subset(gcl_matched, gcl_matched$examdate <= max(Z_sample$examdate))
+cpRnfl_sample$examdate <- as.Date(cpRnfl_sample$examdate, try = "%m/%d/%Y", tz = "EST")
+ipl_sample$examdate <- as.Date(ipl_sample$examdate, try = "%m/%d/%Y", tz = "EST")
+gcl_sample$examdate <- as.Date(gcl_sample$examdate, try = "%m/%d/%Y", tz = "EST")
 
-####
-# New dataset: most recent pair from each patient (hence no subunits)
-gcl_matched[, -c(1:2)] <- gcl_matched[, -c(1:2)] + ipl_matched[, -c(1:2)]
-Z_dates <- aggregate(Z_sample$examdate,
-  by = list(patientid = Z_sample$patientid), max)
-gcl_dates <- aggregate(gcl_matched$examdate,
-  by = list(patientid = gcl_matched$patientid), max)
+# New dataset: most recent pair from each patient (Left AND Right)
+gcl_sample[, -c(1:3)] <- gcl_sample[, -c(1:3)] + ipl_sample[, -c(1:3)]
+cpRnfl_dates <- aggregate(cpRnfl_sample$examdate,
+  by = list(patientid = cpRnfl_sample$patientid), max)
+gcl_dates <- aggregate(gcl_sample$examdate,
+  by = list(patientid = gcl_sample$patientid), max)
 # Take images from the most recent dates (can be multiple)
-colnames(Z_dates)[2] <- "examdate"
+colnames(cpRnfl_dates)[2] <- "examdate"
 colnames(gcl_dates)[2] <- "examdate"
 # No pairing if more than 6 months apart
-Z_recents <- merge(Z_dates, Z_sample)
-gcl_recents <- merge(gcl_dates, gcl_matched)
+cpRnfl_recents <- merge(cpRnfl_dates, cpRnfl_sample)
+gcl_recents <- merge(gcl_dates, gcl_sample)
 my_mean <- function(x) {
   if(!length(na.omit(x))) return(NA)
   return(mean(x, na.rm = T))
 }
-Z_cs <- aggregate(Z_recents[, -c(1:2)],
-  list(patientid = Z_recents$patientid,
-       examdate = Z_recents$examdate),
+cp_cs <- aggregate(cpRnfl_recents[, -c(1:3)],
+  list(patientid = cpRnfl_recents$patientid,
+       examdate  = cpRnfl_recents$examdate,
+       eye       = cpRnfl_recents$eye),
   my_mean)
-gcl_cs <- aggregate(gcl_recents[, -c(1:2)],
+gcl_cs <- aggregate(gcl_recents[, -c(1:3)],
   list(patientid = gcl_recents$patientid,
-       examdate = gcl_recents$examdate),
+       examdate  = gcl_recents$examdate,
+       eye       = gcl_recents$eye),
   my_mean)
-cs_data <- merge(Z_cs, gcl_cs, by = "patientid")
+cs_data <- merge(cp_cs, gcl_cs, by = c("patientid", "eye"))
 cs_data <- subset(cs_data, examdate.y - examdate.x <= 180)
 
-cs_data$group <- 0
-cs_data$group[cs_data$patientid %in% idMatches_tr] <- 1
-## 393 eyes, 333 glaucoma, 60 healthy, no subunits
-cs_data <- cs_data[,-291]
+## 731 eyes (=images by our design)
+## from 393 patients
+## 11 patient missing the left eye (subunit)
+## 615 eyes glaucoma, 116 eyes healthy
+## (333 patients glaucoma, 60 healthy)
+cs_data$group <- 0L
+cs_data$group[cs_data$patientid %in% idMatches_tr] <- 1L
+colnames(cs_data)[3] <- "examdate"
+cs_data <- cs_data[, -which(colnames(cs_data) == "examdate.y")]
 saveRDS(cs_data, file = "./data/smallest.Rds")
-####
-
-# library(lubridate)
-# my_mean <- function(x) { if (!length(na.omit(x))) return(NA); mean(x, na.rm = TRUE)}
-# Z_byDate <- aggregate(Z_sample[,-c(1,2)],
-#                       by = list(patientid = Z_sample$patientid, examyear = lubridate::year(Z_sample$examdate)), 
-#                       FUN = my_mean)
-# i_byDate <- aggregate(ipl_matched[,-c(1,2)],
-#                       by = list(patientid = ipl_matched$patientid, examyear = lubridate::year(ipl_matched$examdate)),
-#                       FUN = my_mean)
-# g_byDate <- aggregate(gcl_matched[,-c(1,2)],
-#                       by = list(patientid = gcl_matched$patientid, examyear = lubridate::year(gcl_matched$examdate)),
-#                       FUN = my_mean)
-# # Omit all NA's (No observation for that ID and CY)
-# i_byDate <- i_byDate[!apply(i_byDate, 1, function(x) sum(is.na(x))== 64),]
-# g_byDate <- g_byDate[!apply(g_byDate, 1, function(x) sum(is.na(x))== 64),]
-# # all(i_byDate$examyear == g_byDate$examyear & i_byDate$patientid == g_byDate$patientid)
-# # Matching the datasets with a natural (inner) join
-# # For IPL and GCL, all you do is just summing up the figures
-# m_byDate <- i_byDate
-# m_byDate[,-c(1,2)] <- i_byDate[,-c(1,2)] + g_byDate[,-c(1,2)] # There is 1 for which there is NA only for IPL
-# agg_data <- merge(Z_byDate, m_byDate, by = c("patientid", "examyear"))
-# 
-# # Now we code the groups: control vs. treatment
-# # Coding: 0 == control, 1 == treatment
-# agg_data$group <- 0
-# agg_data$group[agg_data$patientid %in% idMatches_tr] <- 1
-# ## In total 625 eyes for unhealthy, 93 eyes for healthy
-# saveRDS(agg_data, file = "./data/macula_cross14-17.Rds")
-
-#######
