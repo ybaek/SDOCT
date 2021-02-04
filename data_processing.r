@@ -131,4 +131,4 @@ dataset <- list(
   id = as.integer(as.factor(cs_data$patientid)),
   group = cs_data$group
 )
-saveRDS(dataset, file = "./data/dataset.Rds")
+saveRDS(dataset, file = "./data/dataset.rds")
