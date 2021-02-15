@@ -38,9 +38,15 @@ vignettes/*.pdf
 # R Environment Variables
 .Renviron
 
+# R start-up script
+.Rprofile
+
 ####
 data/*
 objects/*
 images/*
 .vscode/*
 *.o
+renv/*
+tfenv/*
+renv.lock
