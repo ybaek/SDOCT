@@ -32,6 +32,10 @@ y <- rnorm(10)
 D <- matrix(0, 10, 10)
 D[lower.tri(D)] <- dist(1:10)
 D[upper.tri(D)] <- t(D)[upper.tri(D)]
+
+K <- exp(-D/1.0) * 0.5 + diag(0.5, 10)
+-5 * log(2*pi) - .5 * log(det(K)) - .5 * c(t(y) %*% solve(K) %*% y)
+
 gp <- new(gp_mean, D = D, y = y)
-gp$log_prob(c(tau = 1.0, sigma = 1.0, rho = 2.0))
-round(gp$gradient(c(tau = 1.0, sigma = 1.0, rho = 2.0)), digits = 4)
+gp$log_prob(c(tau = 0.5, sigma = 0.5, rho = 1.0))
+round(gp$gradient(c(tau = 0.5, sigma = 0.5, rho = 1.0)), digits = 4)
