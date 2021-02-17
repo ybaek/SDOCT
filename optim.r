@@ -12,10 +12,10 @@ library(Rcpp)
 
 tf <- tempfile(fileext = "Module.cpp")
 exposeClass("gp_mean",
-            constructors = list(c("Eigen::MatrixXd", "Eigen::VectorXd")),
-            fields = c("D", "y"),
+            constructors = list(c("Eigen::VectorXd", "Eigen::VectorXd")),
+            fields = c("x", "y"),
             methods = c("log_prob<>", "gradient<>"),
-            rename = c(log_prob = "log_prob<>", gradient = "gradient<>"),
+            rename = c(log_prob = "log_prob<>", "gradient<>"),
             header = c("// [[Rcpp::depends(BH)]]",
                        "// [[Rcpp::depends(RcppEigen)]]",
                        "// [[Rcpp::depends(RcppParallel)]",
@@ -28,14 +28,15 @@ Sys.setenv(PKG_CXXFLAGS = paste0(Sys.getenv("PKG_CXXFLAGS"), " -I",
                                  system.file("include", "src", 
                                              package = "StanHeaders", mustWork = TRUE)))
 sourceCpp(tf)
-y <- rnorm(10)
-D <- matrix(0, 10, 10)
-D[lower.tri(D)] <- dist(1:10)
+y <- rnorm(2)
+x <- 1:2
+D <- matrix(0, 2, 2)
+D[lower.tri(D)] <- dist(x)
 D[upper.tri(D)] <- t(D)[upper.tri(D)]
 
-K <- exp(-D/1.0) * 0.5 + diag(0.5, 10)
--5 * log(2*pi) - .5 * log(det(K)) - .5 * c(t(y) %*% solve(K) %*% y)
+K <- exp(-D/2.) * 1.^2 + diag(.5^2, 2)
+-log(2*pi)-.5*log(det(K))-.5*c(t(y) %*% solve(K) %*% y)
 
-gp <- new(gp_mean, D = D, y = y)
-gp$log_prob(c(tau = 0.5, sigma = 0.5, rho = 1.0))
-round(gp$gradient(c(tau = 0.5, sigma = 0.5, rho = 1.0)), digits = 4)
+gp <- new(gp_mean, x = x, y = y)
+gp$log_prob(c(tau = 0., rho = log(2.), sigma = log(.5)))
+round(gp$gradient(c(tau = 0., rho = log(2.), sigma = log(.5))), digits = 4)
