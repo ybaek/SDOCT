@@ -28,7 +28,7 @@ struct foo {
     Eigen::Index N = b.size() / D;
     // Returns meaningless result when b.size() != N * D
     T sum = 0.;
-    for (int i = 0; i < N; ++i) {
+    for (Eigen::Index i = 0; i < N; ++i) {
       /* For correct usage of Eigen::Ref, see the question */
       /* https://stackoverflow.com/questions/21132538/correct-usage-of-the-eigenref-class */
       const Eigen::Ref<const Matrix<T, Dynamic, 1>>& bsub = b.segment(i * D, D);
