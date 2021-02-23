@@ -15,19 +15,23 @@ data {
     matrix[Nknots2, Q] Kt2;      // kernel matrix 2(transposed format)
 }
 parameters {
-    vector[L] xi[J];               // latent variables (shared across Z and Y)
+    vector[L] xi[J];                // latent variables (shared across Z and Y)
     matrix[Nknots1, L] weights1[J]; // affine weights for Z
     matrix[Nknots2, L] weights2[J]; // affine weights for Y
-    real<lower=0> rho1;            // GP length scale for Z
-    real<lower=0> rho2;            // GP length scale for Y
-    real<lower=0> tau1;            // GP scale for Z
-    real<lower=0> tau2;            // GP scale for Y
-    real<lower=0> alpha1;          // pre-tanh scale for Z
-    real<lower=0> alpha2;          // pre-tanh scale for Y
-    real<lower=0> beta1;           // post-tanh scale for Z
-    real<lower=0> beta2;           // post-tanh scale for Y
-    real<lower=0> sigma1;          // residual scale for Z
-    real<lower=0> sigma2;          // residual scale for Y
+    vector[Nknots1] biases1[J];     // "biases" (intercepts) for Z
+    vector[Nknots2] biases2[J];     // "biases" (intercepts) for Y
+    real<lower=0> rho1;             // GP length scale for Z
+    real<lower=0> rho2;             // GP length scale for Y
+    real<lower=0> tau1;             // GP scale for Z
+    real<lower=0> tau2;             // GP scale for Y
+    real<lower=0> alpha1;           // pre-tanh scale for Z
+    real<lower=0> alpha2;           // pre-tanh scale for Y
+    real<lower=0> beta1;            // post-tanh scale for Z
+    real<lower=0> beta2;            // post-tanh scale for Y
+    matrix[J, P] intercept1;        // obs-level intercept for Z
+    matrix[J, Q] intercept2;        // obs-level intercept for Y
+    real<lower=0> sigma1;           // residual scale for Z
+    real<lower=0> sigma2;           // residual scale for Y
 }
 model {
     /* Since Stan cannot efficiently handle matrix normals yet,
@@ -39,8 +43,8 @@ model {
     matrix[J, P] fz;
     matrix[J, Q] fy;
     // Auxiliary variables for GP covariance
-    matrix[Nknots1, J] eta_z;
-    matrix[Nknots2, J] eta_y;
+    matrix[Nknots1, J] eta1;
+    matrix[Nknots2, J] eta2;
     {
         matrix[J, Nknots1] latent_mean1;
         matrix[J, Nknots2] latent_mean2;
@@ -49,16 +53,16 @@ model {
         matrix[Nknots2, Nknots2] latent_cov2 = cov_exp_quad(s, tau2, rho2);
         matrix[Nknots2, Nknots2] L_lc2 = cholesky_decompose(latent_cov2);
         for (j in 1:J) {
-            latent_mean1[j, ] = beta1 * tanh(weights1[j] * xi[j] / alpha1)';
-            latent_mean2[j, ] = beta2 * tanh(weights2[j] * xi[j] / alpha2)';
+            latent_mean1[j, ] = beta1 * tanh((biases1[j] + weights1[j] * xi[j]) / alpha1)';
+            latent_mean2[j, ] = beta2 * tanh((biases2[j] + weights2[j] * xi[j]) / alpha2)';
         }
-        fz = latent_mean1 + (L_lc1 * eta_z)' * Kt1;
-        fy = latent_mean2 + (L_lc2 * eta_y)' * Kt2;
+        fz = intercept1 + latent_mean1 + (L_lc1 * eta1)' * Kt1;
+        fy = intercept2 + latent_mean2 + (L_lc2 * eta2)' * Kt2;
     }
     // Data conditional likelihood is independent
     for (n in 1:N) {
-        to_vector(z[n,]) ~ normal(to_vector(fz[jj[n],]), sigma1);
-        to_vector(y[n,]) ~ normal(to_vector(fy[jj[n],]), sigma2);
+        z[n,] ~ normal(fz[jj[n],], sigma1);
+        y[n,] ~ normal(fy[jj[n],], sigma2);
     }
 
     // Parameter priors
@@ -72,8 +76,8 @@ model {
     alpha2 ~ normal(0, .3);
     beta1 ~ normal(0, 10);
     beta2 ~ normal(0, 10);
-    to_vector(eta_z) ~ std_normal();
-    to_vector(eta_y) ~ std_normal();
+    to_vector(eta1) ~ std_normal();
+    to_vector(eta2) ~ std_normal();
     for (j in 1:J) {
         xi[j] ~ std_normal();
         to_vector(weights1[j]) ~ std_normal();
