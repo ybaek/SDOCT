@@ -3,7 +3,5 @@
 # (Script for ARVO submission paper)
 # Last Updated: Feb. 10th, 21
 #
-.utils <- new.env()
-source("./utilities.r", local = .utils)
-ds <- readRDS("./data/dataset.rds")
-stats <- readRDS("./data/stats.rds")
+library(rstan)
+m <- stan_model(file = 'constrained_nnet.stan')
