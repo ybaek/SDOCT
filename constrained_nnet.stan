@@ -1,18 +1,18 @@
 data {
-    int<lower=1> N;             // no. of data points
-    int<lower=1> J;             // no. of groups
-    int<lower=1> P;             // dim. of mv response 1
-    int<lower=1> Q;             // dim. of mv response 2
-    int<lower=1> Nknots1;      // no. of knots 1
-    int<lower=1> Nknots2;      // no. of knots 2
-    int<lower=1> L;             // latent dimension
-    int<lower=1,upper=J> jj[N]; // group vector
+    int<lower=1> N;              // no. of data points
+    int<lower=1> J;              // no. of groups
+    int<lower=1> P;              // dim. of mv response 1
+    int<lower=1> Q;              // dim. of mv response 2
+    int<lower=1> Nknots1;        // no. of knots 1
+    int<lower=1> Nknots2;        // no. of knots 2
+    int<lower=1> L;              // latent dimension
+    int<lower=1,upper=J> jj[N];  // group vector
     real x[Nknots1];             // knot locations (scalar)
     vector[2] s[Nknots2];        // knot locations (R2 plane)
-    matrix[N, P] z;             // data (1D image)
-    matrix[N, Q] y;             // data (2D image)
-    matrix[Nknots1, P] Kt1;      // kernel matrix 1(transposed format)
-    matrix[Nknots2, Q] Kt2;      // kernel matrix 2(transposed format)
+    vector[P] z[N];              // data (1D image)
+    vector[Q] y[N];              // data (2D image)
+    matrix[P, Nknots1] K1;       // kernel matrix 1
+    matrix[Q, Nknots2] K2;       // kernel matrix 2
 }
 parameters {
     vector[L] xi[J];                // latent variables (shared across Z and Y)
@@ -28,43 +28,36 @@ parameters {
     real<lower=0> alpha2;           // pre-tanh scale for Y
     real<lower=0> beta1;            // post-tanh scale for Z
     real<lower=0> beta2;            // post-tanh scale for Y
-    matrix[J, P] intercept1;        // obs-level intercept for Z
-    matrix[J, Q] intercept2;        // obs-level intercept for Y
+    matrix[P, J] intercept1;        // obs-level intercept for Z
+    matrix[Q, J] intercept2;        // obs-level intercept for Y
     real<lower=0> sigma1;           // residual scale for Z
     real<lower=0> sigma2;           // residual scale for Y
 }
 model {
-    /* Since Stan cannot efficiently handle matrix normals yet,
-       everything needs to be implemented in vectorized forms
-       latent variable eta is introduced in particular so that
-       we don't end up having a giant kronecker covariance */
-
     // Latent Gaussian process mean function
-    matrix[J, P] fz;
-    matrix[J, Q] fy;
-    // Auxiliary variables for GP covariance
-    matrix[Nknots1, J] eta1;
-    matrix[Nknots2, J] eta2;
+    matrix[P, J] fz;
+    matrix[Q, J] fy;
+    matrix[P, P] Cz;
+    matrix[Q, Q] Cy;
     {
-        matrix[J, Nknots1] latent_mean1;
-        matrix[J, Nknots2] latent_mean2;
+        matrix[Nknots1, J] latent_mean1;
+        matrix[Nknots2, J] latent_mean2;
         matrix[Nknots1, Nknots1] latent_cov1 = cov_exp_quad(x, tau1, rho1);
-        matrix[Nknots1, Nknots1] L_lc1 = cholesky_decompose(latent_cov1);
         matrix[Nknots2, Nknots2] latent_cov2 = cov_exp_quad(s, tau2, rho2);
-        matrix[Nknots2, Nknots2] L_lc2 = cholesky_decompose(latent_cov2);
+        Cz = quad_form_sym(latent_cov1, K1');
+        Cy = quad_form_sym(latent_cov2, K2');
         for (j in 1:J) {
-            latent_mean1[j, ] = beta1 * tanh((biases1[j] + weights1[j] * xi[j]) / alpha1)';
-            latent_mean2[j, ] = beta2 * tanh((biases2[j] + weights2[j] * xi[j]) / alpha2)';
+            latent_mean1[,j] = beta1 * tanh((biases1[j] + weights1[j] * xi[j]) / alpha1);
+            latent_mean2[,j] = beta2 * tanh((biases2[j] + weights2[j] * xi[j]) / alpha2);
         }
-        fz = intercept1 + latent_mean1 + (L_lc1 * eta1)' * Kt1;
-        fy = intercept2 + latent_mean2 + (L_lc2 * eta2)' * Kt2;
+        fz = intercept1 + K1 * latent_mean1;
+        fy = intercept2 + K2 * latent_mean2;
     }
     // Data conditional likelihood is independent
     for (n in 1:N) {
-        z[n,] ~ normal(fz[jj[n],], sigma1);
-        y[n,] ~ normal(fy[jj[n],], sigma2);
+        z[n] ~ multi_normal(fz[,jj[n]], Cz);
+        y[n] ~ multi_normal(fy[,jj[n]], Cy);
     }
-
     // Parameter priors
     rho1 ~ inv_gamma(5, 5); 
     rho2 ~ inv_gamma(5, 5); 
@@ -76,8 +69,6 @@ model {
     alpha2 ~ normal(0, .3);
     beta1 ~ normal(0, 10);
     beta2 ~ normal(0, 10);
-    to_vector(eta1) ~ std_normal();
-    to_vector(eta2) ~ std_normal();
     for (j in 1:J) {
         xi[j] ~ std_normal();
         to_vector(weights1[j]) ~ std_normal();
