@@ -6,6 +6,7 @@
 dataset <- readRDS("data/dataset.rds")
 centering <- readRDS("data/stats.rds")
 N <- round(nrow(dataset$Z) * .7)
+K <- 6
 J <- max(dataset$id)
 QUADRANT_NO <- ncol(dataset$Z) / 4
 P <- 3 * QUADRANT_NO
@@ -67,6 +68,7 @@ y_train <- sweep(y_train, 2, centering$m["q5", ])
 #
 data <- list(
     N = N, 
+    K = K,
     P = P,
     Q = Q, 
     Nknots1 = Nknots1,
@@ -89,9 +91,10 @@ o <- optimizing(
 )   
 o_points <- o$par
 o_names  <- names(o_points)
-xi <- o_points[grep("xi", o_names)]
-weights <- matrix(o_points[grep("weights", o_names)], Nknots2)
-biases <- o_points[grep("biases", o_names)]
+pis <- o_points[grep("pi", o_names)]
+xi <- array(o_points[grep("xi", o_names)], dim = c(K, L))
+weights <- array(o_points[grep("weights", o_names)], dim = c(K, Nknots2, L))
+biases <- array(o_points[grep("biases", o_names)], dim = c(K, Nknots2))
 intercepts <- o_points[grep("intercept", o_names)]
 alpha <- o_points["alpha2"]
 beta <- o_points["beta2"]
@@ -99,22 +102,24 @@ tau <- o_points["tau2"]
 rho <- o_points["rho2"]^2 * 2 
 sigma <- o_points["sigma2"]
 # Can it simulate realistic images?
-Nsamples <- 100
+y_test <- y[-(1:N), ]
+y_test <- sweep(y_test, 2, centering$m["q5", ])
+
+Nsamples <- nrow(y_test)
 ypred <- matrix(0, Nsamples, Q)
 for (n in 1:Nsamples) {
-    eta <- beta * tanh(biases + weights %*% xi / alpha) + 
+    coin <- sample(K, 1, prob = pis)
+    eta <- beta * tanh(biases[coin,] + weights[coin,,] %*% xi[coin,] / alpha) + 
         t(chol(tau^2 * exp(-D2[knots2_inds, knots2_inds] / rho))) %*% 
         matrix(rnorm(Nknots2))
     ypred[n, ] <- intercepts + K2 %*% eta + sigma * matrix(rnorm(Q))
 }
 ypred <- ypred * 12
-y_test <- y[-(1:N), ]
-y_test <- sweep(y_test, 2, centering$m["q5", ])
 
 png("images/sample_realizations.png", 1080, 1080, res = 150)
 par(mfrow = c(1, 2))
-boxplot(y_test, ylim = c(-25, 105), main = "Held-out data")
-boxplot(ypred, ylim = c(-25, 105), main = "100 Samples from Model")
+boxplot(y_test, ylim = c(-25, 105), main = "Test set")
+boxplot(ypred, ylim = c(-25, 105), main = "Samples from Model")
 dev.off()
 
 plots <- new.env()
@@ -133,8 +138,12 @@ plots$multiplot(g1, g2, cols = 2)
 dev.off()
 
 png("images/latent_visual.png", 1080, 1080, res = 150)
-latents <- c(biases + weights %*% xi)
-plot(latents, beta * tanh(latents / alpha),
+latents <- matrix(0, K, Nknots2)
+for (k in 1:K) {
+    latents[k,] <- c(biases[k,] + weights[k,,] %*% xi[k,])
+}
+plot(latents[1,], beta * tanh(latents[1,] / alpha),
      xlab = "Bias + Weights * xi", ylab = "After scaled tanh",
      pch = 19) 
+for (k in 2:K) points(latents[k,], beta * tanh(latents[k,] / alpha), pch = 19, col = k)
 dev.off()
