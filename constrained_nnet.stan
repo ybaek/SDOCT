@@ -75,5 +75,3 @@ model {
         to_vector(weights2[j]) ~ std_normal();
     } 
 }
-generated quantities {
-}
