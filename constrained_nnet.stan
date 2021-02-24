@@ -1,18 +1,18 @@
 data {
-    int<lower=1> N;              // no. of data points
-    int<lower=1> J;              // no. of groups
-    int<lower=1> P;              // dim. of mv response 1
-    int<lower=1> Q;              // dim. of mv response 2
-    int<lower=1> Nknots1;        // no. of knots 1
-    int<lower=1> Nknots2;        // no. of knots 2
-    int<lower=1> L;              // latent dimension
-    int<lower=1,upper=J> jj[N];  // group vector
-    real x[Nknots1];             // knot locations (scalar)
-    vector[2] s[Nknots2];        // knot locations (R2 plane)
-    vector[P] z[N];              // data (1D image)
-    vector[Q] y[N];              // data (2D image)
-    matrix[P, Nknots1] K1;       // kernel matrix 1
-    matrix[Q, Nknots2] K2;       // kernel matrix 2
+    int<lower=1> N;               // no. of data points
+    int<lower=1> J;               // no. of groups
+    int<lower=1> P;               // dim. of mv response 1
+    int<lower=1> Q;               // dim. of mv response 2
+    int<lower=1> Nknots1;         // no. of knots 1
+    int<lower=1> Nknots2;         // no. of knots 2
+    int<lower=1> L;               // latent dimension
+    int<lower=1,upper=J> jj[N];   // group vector
+    vector[Nknots1-1] x[Nknots1]; // knot locations
+    vector[Nknots2-1] s[Nknots2]; // knot locations
+    vector[P] z[N];               // data (1D image)
+    vector[Q] y[N];               // data (2D image)
+    matrix[P, Nknots1] K1;        // kernel matrix 1
+    matrix[Q, Nknots2] K2;        // kernel matrix 2
 }
 parameters {
     vector[L] xi[J];                // latent variables (shared across Z and Y)
@@ -42,19 +42,23 @@ model {
     {
         matrix[Nknots1, J] latent_mean1;
         matrix[Nknots2, J] latent_mean2;
+        // TODO: rstan does not support other kernels yet
         matrix[Nknots1, Nknots1] latent_cov1 = cov_exp_quad(x, tau1, rho1);
         matrix[Nknots2, Nknots2] latent_cov2 = cov_exp_quad(s, tau2, rho2);
         Cz = quad_form_sym(latent_cov1, K1');
         Cy = quad_form_sym(latent_cov2, K2');
         for (j in 1:J) {
+            // Nonlinearity thru scaled tanh 
             latent_mean1[,j] = beta1 * tanh((biases1[j] + weights1[j] * xi[j]) / alpha1);
             latent_mean2[,j] = beta2 * tanh((biases2[j] + weights2[j] * xi[j]) / alpha2);
         }
         fz = intercept1 + K1 * latent_mean1;
         fy = intercept2 + K2 * latent_mean2;
     }
-    // Data conditional likelihood is independent
+    // Data conditional likelihood is independent with residual noise
     for (n in 1:N) {
+        Cz[n,n] += square(sigma);
+        Cy[n,n] += square(sigma);
         z[n] ~ multi_normal(fz[,jj[n]], Cz);
         y[n] ~ multi_normal(fy[,jj[n]], Cy);
     }
