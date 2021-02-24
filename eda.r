@@ -1,3 +1,6 @@
+plots <- new.env()
+source('plots.r', local = plots)
+
 # Smoothing the quantiles (problem: measurements are integers)
 # Simple moving average
 center <- readRDS("data/stats.rds")
@@ -26,13 +29,25 @@ library(cluster)
 Y_centered <- sweep(ds$Y, 2, c(center_m))
 # Out-of-shelf clustering algorithms aren't good at handling missing values
 Y_centered[is.na(Y_centered)] <- mean(Y_centered, na.rm = T)
-clusters <- apply(Y_centered, 1, function(row) cluster::pam(row, k = 16)$id.med)
-clusters <- matrix(table(clusters), 8)
-g <- ggplot(melt(clusters)) + geom_tile(aes(x = Var1, y = Var2, fill = value)) + 
-    scale_fill_distiller(palette = "Reds", direction=1) + 
-    labs(fill = "Frequency", title = "In how many images was it a medoid (k = 16)?") + 
+# Try different values of k's
+ks <- c(4, 8, 16, 32)
+clusters <- list(4)
+for (i in 1:4) {
+    clusters[[i]] <- apply(Y_centered, 1, function(row) cluster::pam(row, k = ks[i])$id.med)
+}
+clusters <- lapply(clusters, function(m) matrix(table(m), 8))
+gList <- vector(mode = "list", length = 4)
+for (i in 1:4) {
+    gList[[i]] <- ggplot(melt(clusters[[i]])) +
+    geom_tile(aes(x = Var1, y = Var2, fill = value)) + 
+    labs(x = "", y = "", fill = "Frequency",
+         title = paste0("k=", ks[i])) + 
     theme_minimal()
-ggsave("images/medoids.png", g, device = "png")
+}
+png("images/medoids.png", 1080, 1080, res = 150)
+plots$multiplot(plotlist = gList, cols = 2)
+dev.off()
+
 
 #####
 # How does nonlinearity (tanh) affect the emission model?

@@ -66,9 +66,18 @@ z_train <- sweep(z_train, 2, centering$cp["q5", zkeep_inds])
 y_train <- sweep(y_train, 2, centering$m["q5", ])
 #
 data <- list(
-    N = N, J = J, P = P, Q = Q, Nknots1 = Nknots1, Nknots2 = Nknots2,
-    L = L, jj = dataset$id[1:N], x = X1, s = X2, 
-    z = z_train / 30, y = y_train / 12, K1 = K1, K2 = K2
+    N = N, 
+    P = P,
+    Q = Q, 
+    Nknots1 = Nknots1,
+    Nknots2 = Nknots2,
+    L = L, 
+    x = X1, 
+    s = X2, 
+    z = z_train / 30, 
+    y = y_train / 12, 
+    K1 = K1,
+    K2 = K2
 )
 library(rstan)
 rstan_options(auto_write = TRUE)
@@ -77,4 +86,55 @@ options(mc.cores = parallel::detectCores())
 o <- optimizing(
     m, data = data,
     algorithm = "LBFGS"
-)
+)   
+o_points <- o$par
+o_names  <- names(o_points)
+xi <- o_points[grep("xi", o_names)]
+weights <- matrix(o_points[grep("weights", o_names)], Nknots2)
+biases <- o_points[grep("biases", o_names)]
+intercepts <- o_points[grep("intercept", o_names)]
+alpha <- o_points["alpha2"]
+beta <- o_points["beta2"]
+tau <- o_points["tau2"]
+rho <- o_points["rho2"]^2 * 2 
+sigma <- o_points["sigma2"]
+# Can it simulate realistic images?
+Nsamples <- 100
+ypred <- matrix(0, Nsamples, Q)
+for (n in 1:Nsamples) {
+    eta <- beta * tanh(biases + weights %*% xi / alpha) + 
+        t(chol(tau^2 * exp(-D2[knots2_inds, knots2_inds] / rho))) %*% 
+        matrix(rnorm(Nknots2))
+    ypred[n, ] <- intercepts + K2 %*% eta + sigma * matrix(rnorm(Q))
+}
+ypred <- ypred * 12
+y_test <- y[-(1:N), ]
+y_test <- sweep(y_test, 2, centering$m["q5", ])
+
+png("images/sample_realizations.png", 1080, 1080, res = 150)
+par(mfrow = c(1, 2))
+boxplot(y_test, ylim = c(-25, 105), main = "Held-out data")
+boxplot(ypred, ylim = c(-25, 105), main = "100 Samples from Model")
+dev.off()
+
+plots <- new.env()
+source("plots.r", local = plots)
+cov_eta <- tau^2 * exp(-D2[knots2_inds, knots2_inds] / rho)
+cov_y   <- K2 %*% cov_eta %*% t(K2) + diag(sigma^2, Q)
+library(reshape2)
+g1 <- ggplot(144 * melt(cov_eta)) + 
+    geom_tile(aes(x = Var1, y = Var2, fill = value)) +
+    labs(x = "", y = "", fill = "")
+g2 <- ggplot(144 * melt(cov_y)) + 
+    geom_tile(aes(x = Var1, y = Var2, fill = value)) +
+    labs(x = "", y = "", fill = "")
+png("images/covariance_estimates.png", 1080, 720, res = 150)
+plots$multiplot(g1, g2, cols = 2)
+dev.off()
+
+png("images/latent_visual.png", 1080, 1080, res = 150)
+latents <- c(biases + weights %*% xi)
+plot(latents, beta * tanh(latents / alpha),
+     xlab = "Bias + Weights * xi", ylab = "After scaled tanh",
+     pch = 19) 
+dev.off()
