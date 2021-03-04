@@ -1,57 +1,47 @@
 #
 # Main script for fitting the linear mixed model
 # (Script for ARVO submission paper)
-# Last Updated: Feb. 24th, 21
+# Last Updated: Mar. 3rd, 21
 #
 dataset <- readRDS("data/dataset.rds")
 centering <- readRDS("data/stats.rds")
 N <- round(nrow(dataset$Z) * .7)
-K <- 6
+# K <- 6
 J <- max(dataset$id)
 QUADRANT_NO <- ncol(dataset$Z) / 4
 P <- 3 * QUADRANT_NO
 Q <- ncol(dataset$Y)
-L <- 2 # Pretty arbitrary at this point
+zkeep_inds <- c(
+    seq(QUADRANT_NO * 3 + 1, QUADRANT_NO * 4),
+    seq(1, QUADRANT_NO * 2)
+)
 # Knot selection: default is uniformly spaced, dense
-Nknots1 <- 48
-Nknots2 <- 16
-full1  <- seq(P)
-full2  <- as.matrix(expand.grid(1:8, 1:8))
-knots1 <- seq(1, P, by = 12) # x
-knots2_inds <- c(10, 12, 13, 15, 26, 28, 29, 31,
+Nknots_z <- P / 8
+Nknots_y <- 16
+full_z  <- 1:P
+full_y  <- as.matrix(expand.grid(1:8, 1:8))
+knots_inds_z <- seq(1, P, by = 8)
+knots_inds_y <- c(10, 12, 13, 15, 26, 28, 29, 31,
                  34, 36, 37, 39, 50, 52, 53, 55)
-knots2 <- full2[knots2_inds, ] # s
+knots_z <- full_z[knots_inds_z] # x
+knots_y <- full_y[knots_inds_y, ] # s
 # Cumbersome thing to do: since rstan does not provide
 # access to kernel functions other than quadratic exponential,
 # I need to compute sqrt of pairwise distances and embed
-# coordinates in R^D for a "de facto" exponential kernel
-D1 <- matrix(0, P, P)
-D1[lower.tri(D1)] <- dist(full1) * (2 * pi / QUADRANT_NO / 4)
-D1[upper.tri(D1)] <- t(D1)[upper.tri(D1)]
-D2 <- matrix(0, Q, Q)
-D2[lower.tri(D2)] <- dist(full2)
-D2[upper.tri(D2)] <- t(D2)[upper.tri(D2)]
-K1 <- D1[, knots1]
-K2 <- D2[, knots2_inds]
-M1 <- K1[knots1, ]
-M2 <- K2[knots2_inds, ]
+# coordinates in R^D for a "de factor" exponential kernel
+D1 <- as.matrix(dist(full_z) * 2 * pi / 768)
+D2 <- as.matrix(dist(full_y))
+K1 <- D1[, knots_inds_z]
+K2 <- D2[, knots_inds_y]
+M1 <- K1[knots_inds_z, ]
+M2 <- K2[knots_inds_y, ]
 M1 <- sweep(M1[, 1] - M1, 2, M1[1,], "+") / 2
 M2 <- sweep(M2[, 1] - M2, 2, M2[1,], "+") / 2
-X1 <- with(eigen(M1), sweep(vectors, 2, values^.5, "*"))[, -Nknots1]
-X2 <- with(eigen(M2), sweep(vectors, 2, values^.5, "*"))[, -Nknots2]
-# Forming a kernel matrix
-rho_k1 <- 4 * (2*pi / QUADRANT_NO / 4)
-rho_k2 <- 1 * (1 + 1)^.5
-K1 <- exp(-K1 / rho_k1)
-K2 <- exp(-K2 / rho_k2)
-# Many coefficients of K1 are numerically indistinguishable from zero
-K1[K1 < sqrt(.Machine$double.eps)] <- 0.0
-# Actual data (pre-processed: centering + normalization?)
-zkeep_inds <- c(seq(QUADRANT_NO * 3 + 1, ncol(dataset$Z)),
-                seq(1, QUADRANT_NO * 2))
-z <- dataset$Z[, zkeep_inds]
-y <- dataset$Y
+X1 <- with(eigen(M1), sweep(vectors, 2, values^.5, "*"))[, -Nknots_z]
+X2 <- with(eigen(M2), sweep(vectors, 2, values^.5, "*"))[, -Nknots_y]
+#
 # Imputation (I don't want to bother with missing values--just now)
+y <- dataset$Y
 mis_inds <- which(is.na(y), arr.ind = T)
 for (i in 1:nrow(mis_inds)) {
     r <- mis_inds[i, 1]
@@ -61,89 +51,48 @@ for (i in 1:nrow(mis_inds)) {
     nmeans <- mean(y[r, neighbors], na.rm = T)
     y[r, j] <- ifelse(is.nan(nmeans), mean(y[r, ], na.rm = T), nmeans)
 }
-z_train <- z[1:N, ]
+#
+z_train <- dataset$Z[1:N, zkeep_inds]
 y_train <- y[1:N, ]
 z_train <- sweep(z_train, 2, centering$cp["q5", zkeep_inds])
 y_train <- sweep(y_train, 2, centering$m["q5", ])
 #
 data <- list(
     N = N, 
-    K = K,
     P = P,
     Q = Q, 
-    Nknots1 = Nknots1,
-    Nknots2 = Nknots2,
-    L = L, 
-    x = X1, 
-    s = X2, 
-    z = z_train / 30, 
-    y = y_train / 12, 
-    K1 = K1,
-    K2 = K2
+    Nknots_z = Nknots_z,
+    Nknots_y = Nknots_y,
+    kk_z = knots_inds_z,
+    kk_y = knots_inds_y,
+    coords_z = full_z * 2 * pi / 768,
+    coords_y = as.matrix(expand.grid(seq(Q^.5), seq(Q^.5))),
+    x_tf = X1,
+    s_tf = X2,
+    z = z_train / 10, 
+    y = y_train / 10
 )
 library(rstan)
 rstan_options(auto_write = TRUE)
-m <- stan_model(file = 'constrained_nnet.stan')
 options(mc.cores = parallel::detectCores())
+m <- stan_model(file = 'constrained_nnet.stan')
 o <- optimizing(
     m, data = data,
-    algorithm = "LBFGS"
+    algorithm = "LBFGS",
+    verbose = TRUE
 )   
 o_points <- o$par
+saveRDS(o_points, "estimates.rds")
+
 o_names  <- names(o_points)
-pis <- o_points[grep("pi", o_names)]
-xi <- array(o_points[grep("xi", o_names)], dim = c(K, L))
-weights <- array(o_points[grep("weights", o_names)], dim = c(K, Nknots2, L))
-biases <- array(o_points[grep("biases", o_names)], dim = c(K, Nknots2))
-intercepts <- o_points[grep("intercept", o_names)]
-alpha <- o_points["alpha2"]
-beta <- o_points["beta2"]
-tau <- o_points["tau2"]
-rho <- o_points["rho2"]^2 * 2 
-sigma <- o_points["sigma2"]
-# Can it simulate realistic images?
-y_test <- y[-(1:N), ]
-y_test <- sweep(y_test, 2, centering$m["q5", ])
-
-Nsamples <- nrow(y_test)
-ypred <- matrix(0, Nsamples, Q)
-for (n in 1:Nsamples) {
-    coin <- sample(K, 1, prob = pis)
-    eta <- beta * tanh(biases[coin,] + weights[coin,,] %*% xi[coin,] / alpha) + 
-        t(chol(tau^2 * exp(-D2[knots2_inds, knots2_inds] / rho))) %*% 
-        matrix(rnorm(Nknots2))
-    ypred[n, ] <- intercepts + K2 %*% eta + sigma * matrix(rnorm(Q))
-}
-ypred <- ypred * 12
-
-png("images/sample_realizations.png", 1080, 1080, res = 150)
-par(mfrow = c(1, 2))
-boxplot(y_test, ylim = c(-25, 105), main = "Test set")
-boxplot(ypred, ylim = c(-25, 105), main = "Samples from Model")
-dev.off()
-
-plots <- new.env()
-source("plots.r", local = plots)
-cov_eta <- tau^2 * exp(-D2[knots2_inds, knots2_inds] / rho)
-cov_y   <- K2 %*% cov_eta %*% t(K2) + diag(sigma^2, Q)
-library(reshape2)
-g1 <- ggplot(144 * melt(cov_eta)) + 
-    geom_tile(aes(x = Var1, y = Var2, fill = value)) +
-    labs(x = "", y = "", fill = "")
-g2 <- ggplot(144 * melt(cov_y)) + 
-    geom_tile(aes(x = Var1, y = Var2, fill = value)) +
-    labs(x = "", y = "", fill = "")
-png("images/covariance_estimates.png", 1080, 720, res = 150)
-plots$multiplot(g1, g2, cols = 2)
-dev.off()
-
-png("images/latent_visual.png", 1080, 1080, res = 150)
-latents <- matrix(0, K, Nknots2)
-for (k in 1:K) {
-    latents[k,] <- c(biases[k,] + weights[k,,] %*% xi[k,])
-}
-plot(latents[1,], beta * tanh(latents[1,] / alpha),
-     xlab = "Bias + Weights * xi", ylab = "After scaled tanh",
-     pch = 19) 
-for (k in 2:K) points(latents[k,], beta * tanh(latents[k,] / alpha), pch = 19, col = k)
-dev.off()
+W <- matrix(o_points[grep("W", o_names)], P)
+b <- o_points[grep("b\\[", o_names)]
+intercept <- o_points[grep("intercept", o_names)]
+beta <- o_points["beta"]
+alpha <- o_points["alpha"]
+sigma <- o_points["sigma"]
+tau <- o_points["tau"]
+lambda <- o_points["lambda"]
+rho <- o_points["rho"]
+kernel <- exp(-D^2 / (2 * lambda^2))[, knots_inds]
+latent_cov <- tau^2 * exp(-D[knots_inds, knots_inds] / rho)
