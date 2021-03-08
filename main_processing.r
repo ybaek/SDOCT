@@ -35,6 +35,8 @@ P <- P / 2
 # 1-6. Train-test set split
 z_train <- z[1:N, ]
 y_train <- y[1:N, ]
+z_test <- z[(N+1):nrow(z), ]
+y_test <- y[(N+1):nrow(y), ]
 
 # 2. Knot selection over surface of macula image
 # (Design set of knots is itself a tuning parameter)
@@ -52,12 +54,12 @@ D1 <- as.matrix(dist(1:P * (2*pi) / P))
 
 # 4. Finding out missing values
 # We don't need to impute them (if so, only for convenience sake)
-mis_inds <- which(is.na(y), arr.ind = T)
-# for (i in 1:nrow(mis_inds)) {
-#     r <- mis_inds[i, 1]
-#     j <- mis_inds[i, 2]
-#     neighbors <- c(j-9, j-8, j-7, j-1, j+1, j+7, j+8, j+9)
-#     neighbors <- neighbors[neighbors > 0 & neighbors < Q]
-#     nmeans <- mean(y[r, neighbors], na.rm = T)
-#     y[r, j] <- ifelse(is.nan(nmeans), mean(y[r, ], na.rm = T), nmeans)
-# }
+mis_inds <- which(is.na(y_train), arr.ind = T)
+for (i in 1:nrow(mis_inds)) {
+    r <- mis_inds[i, 1]
+    j <- mis_inds[i, 2]
+    neighbors <- c(j-9, j-8, j-7, j-1, j+1, j+7, j+8, j+9)
+    neighbors <- neighbors[neighbors > 0 & neighbors < Q]
+    nmeans <- mean(y_train[r, neighbors], na.rm = T)
+    y_train[r, j] <- ifelse(is.nan(nmeans), mean(y_train[r, ], na.rm = T), nmeans)
+}
