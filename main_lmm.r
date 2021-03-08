@@ -1,76 +1,19 @@
 #
 # Main script for fitting the linear mixed model
-# (Script for ARVO submission paper)
-# Last Updated: Feb. 10th, 21
-#
-dataset <- readRDS("data/dataset.rds")
-centering <- readRDS("data/stats.rds")
-N <- round(nrow(dataset$Z) * .7)
-# K <- 6
-J <- max(dataset$id)
-QUADRANT_NO <- ncol(dataset$Z) / 4
-P <- 3 * QUADRANT_NO
-Q <- ncol(dataset$Y)
-zkeep_inds <- c(
-    seq(QUADRANT_NO * 3 + 1, QUADRANT_NO * 4),
-    seq(1, QUADRANT_NO * 2)
-)
-# Knot selection: default is uniformly spaced, dense
-Nknots_z <- P / 8
-Nknots_y <- 16
-full_z  <- 1:P
-full_y  <- as.matrix(expand.grid(1:8, 1:8))
-knots_inds_z <- seq(1, P, by = 8)
-knots_inds_y <- c(10, 12, 13, 15, 26, 28, 29, 31,
-                 34, 36, 37, 39, 50, 52, 53, 55)
-knots_z <- full_z[knots_inds_z] # x
-knots_y <- full_y[knots_inds_y, ] # s
-# Cumbersome thing to do: since rstan does not provide
-# access to kernel functions other than quadratic exponential,
-# I need to compute sqrt of pairwise distances and embed
-# coordinates in R^D for a "de factor" exponential kernel
-D1 <- as.matrix(dist(full_z) * 2 * pi / 768)
-D2 <- as.matrix(dist(full_y))
-K1 <- D1[, knots_inds_z]
-K2 <- D2[, knots_inds_y]
-M1 <- K1[knots_inds_z, ]
-M2 <- K2[knots_inds_y, ]
-M1 <- sweep(M1[, 1] - M1, 2, M1[1,], "+") / 2
-M2 <- sweep(M2[, 1] - M2, 2, M2[1,], "+") / 2
-X1 <- with(eigen(M1), sweep(vectors, 2, values^.5, "*"))[, -Nknots_z]
-X2 <- with(eigen(M2), sweep(vectors, 2, values^.5, "*"))[, -Nknots_y]
-#
-# Imputation (I don't want to bother with missing values--just now)
-y <- dataset$Y
-mis_inds <- which(is.na(y), arr.ind = T)
-for (i in 1:nrow(mis_inds)) {
-    r <- mis_inds[i, 1]
-    j <- mis_inds[i, 2]
-    neighbors <- c(j-9, j-8, j-7, j-1, j+1, j+7, j+8, j+9)
-    neighbors <- neighbors[neighbors > 0 & neighbors < Q]
-    nmeans <- mean(y[r, neighbors], na.rm = T)
-    y[r, j] <- ifelse(is.nan(nmeans), mean(y[r, ], na.rm = T), nmeans)
-}
-#
-z_train <- dataset$Z[1:N, zkeep_inds]
-y_train <- y[1:N, ]
-z_train <- sweep(z_train, 2, centering$cp["q5", zkeep_inds])
-y_train <- sweep(y_train, 2, centering$m["q5", ])
-# rescale to milimeter
-z_train <- z_train / 1000
-y_train <- y_train / 1000
-#
-# New method: start by forming a kernel
-# First, we define a norm informed by the spatial structure
+# (Script for ARVO submission and beyond)
+# Last Updated: Mar. 8th, 21
+# Bayesian approximate kernel regression model with modifications
+library(MASS)
 library(Matrix)
+source("main_processing.r")
 utils <- new.env()
 source("utilities.r", local = utils)
-sparse_scale <- 10 * (2 * pi) / (QUADRANT_NO * 4) # norm > , sparse
+
+# 1. We define a norm informed by the spatial structure
+# Involves a length scale tuning parameter (for us it should hardly matter)
+sparse_scale <- 10 * (2 * pi) / (QUADRANT_NO * 4) # norm > this, sparse
 Cz <- as(utils$wendland_c2(D1, sparse_scale), "symmetricMatrix")
-## Compare the distance matrices
-Dz1 <- as.matrix(dist(z_train)^2)
-## Need N * (N-1)/2 pairwise differences
-pairs <- matrix(0, P, N * (N - 1) / 2)
+pairs <- matrix(0, P, N * (N - 1) / 2) # N * (N-1)/2 pairwise differences
 count <- 1
 for (i in 1:(N - 1)) {
     for (j in (i + 1):N) {
@@ -79,28 +22,83 @@ for (i in 1:(N - 1)) {
     }
 }
 wns <- colSums(pairs * solve(Cz, pairs))
-Dz2 <- matrix(0, N, N)
-Dz2[lower.tri(Dz2)] <- wns
-Dz2[upper.tri(Dz2)] <- t(Dz2)[upper.tri(Dz2)]
-# After normalizing, Dz1 and Dz2 are practically indistinguishable...
-# This is because the more globally independent they are,
-# covariance matrix becomes closer to identity
-Kz <- exp(-Dz2 / .1) # can vary
-# Approximate kernel: thru random Fourier bases
-# see how close the approx is with P bases
-Cz_inv <- solve(Cz)
-Phi <- matrix(0, P, N)
+Dz <- matrix(0, N, N)
+Dz[lower.tri(Dz)] <- wns
+Dz[upper.tri(Dz)] <- t(Dz)[upper.tri(Dz)]
+
+# 2. We can now form the EXACT kernel matrix
+# Note this involves another choice of length scale parameter
+lambda <- 10 # can vary 
+Kz <- exp(-Dz * lambda)
+
+# 3. The approximate kernel is defined by random Fourier bases
+# For details, see the paper itself
+rl_Cz <- t(chol(Cz))
+Phi <- matrix(0, P, N) # approximate eigenfunctions
 for (p in seq(P)) {
-    freq <- as.numeric(sqrt(2 / .1) * t(chol(Cz_inv)) %*% rnorm(P))
+    freq <- as.numeric(sqrt(2 * lambda) * forwardsolve(rl_Cz, rnorm(P)))
     phase <- runif(1) * (2 * pi)
     Phi[p, ] <- sqrt(2 / P) * cos(t(z_train %*% freq) + phase)
 }
-Kz_hat <- crossprod(Phi)
+Kz_hat <- crossprod(Phi) # approximate kernel
+## A full eigendecomposition is needed
+## (Not generalizable when N is big?)
 Kz_ed <- eigen(Kz_hat)
-min(which((cumsum(Kz_ed$values) / sum(Kz_ed$values)) > .9)) # 51
+min(which((cumsum(Kz_ed$values) / sum(Kz_ed$values)) > .9)) # 57
 U_hat <- Kz_ed$vectors[, 1:50]
 diag_hat <- Kz_ed$values[1:50]
-# Inverse map is simply obtained by an M-P inverse
-# of the design matrix
-library(MASS)
+
+# 4. Map back to original linear bases are easily obtained
+# by using the M-P inverse (but NOT the only way to project)
 beta_map <- ginv(z_train, tol = .Machine$double.eps^.5) %*% U_hat
+
+# 5. The great thing about all this is that from hereon,
+# everything boils back down to a multivariate linear model!
+# Even pure R doesn't scale too terribly here for Gibbs sampling...
+Qstar <- dim(K2)[2]
+R <- 50
+mu <- colMeans(y_train)
+Sig0 <- exp(-K2[knots_inds_y, ]^2 / 4)
+Ru0 <- chol(Sig0)
+Sig0inv <- tcrossprod(solve(Ru0))
+Siginv <- rWishart(1, Qstar + 1, tcrossprod(solve(Ru0)))[, , 1]
+Ruinv <- chol(Siginv)
+Theta <- diag_hat * t(backsolve(Ruinv, matrix(rnorm(Qstar * R), Qstar)))
+sig2inv <- 1.
+gamma <- sqrt(2.)
+Nu <- t(backsolve(Ruinv, matrix(rnorm(Qstar * N), Qstar)))
+iter <- 1000
+accepted <- numeric(iter)
+for (i in seq(iter)) {
+    mask <- exp(-.5 * gamma^-2 * K2^2)
+    Theta_prec_right <- sig2inv * crossprod(mask) + Siginv
+    Theta_ru_right <- chol(Theta_prec_right)
+    Theta_mean <- sig2inv * (crossprod(U_hat, sweep(y_train, 2, mu) - tcrossprod(Nu, mask))) %*% mask # not yet!
+    Theta_mean <- forwardsolve(t(Theta_ru_right), t(Theta_mean))
+    Theta_mean <- (1. + 1 / diag_hat)^-1 * t(backsolve(Theta_ru_right, Theta_mean))
+    Theta <- (1. + 1 / diag_hat)^-1 * 
+        t(backsolve(Theta_ru_right, matrix(rnorm(Qstar * R), Qstar))) + # random term
+        Theta_mean # mean term
+    #
+    Nu_mean <- sig2inv * (sweep(y_train, 2, mu) - tcrossprod(U_hat %*% Theta_mean, mask)) %*% mask
+    Nu <- t(backsolve(Theta_ru_right, matrix(rnorm(Qstar * N), Qstar)))
+    #
+    remainder <- y_train - tcrossprod(U_hat %*% Theta_mean + Nu, mask)
+    mu <- colMeans(remainder) + rnorm(Q) / (sig2inv * N)
+    sig2inv <- rgamma(1, .5 * N * Q, .5 * sum(diag(crossprod(remainder)))) # improper prior
+    #
+    Sig_post <- Sig0inv + crossprod(diag_hat * Theta, Theta) + crossprod(Nu)
+    Siginv <- rWishart(1, Qstar + 1 + .5 * (N + R), Sig_post)[, , 1]
+    #
+    # M-H proposal is needed for gamma
+    gamma_prop <- exp(log(gamma) + rnorm(1, 0, 1.5)) # need pilot 
+    mask_prop <- exp(-.5 * gamma_prop^-2 * K2^2)
+    ratio <- sum(dnorm(y_train, tcrossprod(U_hat %*% Theta_mean + Nu, mask_prop), sig2inv, log = T)) - 
+        sum(dnorm(y_train, tcrossprod(U_hat %*% Theta_mean + Nu, mask), sig2inv, log = T)) + 
+        dgamma(gamma_prop, 3, 2, log = T) - dgamma(gamma, 3, 2, log = T)
+    if (log(runif(1)) <= ratio) {
+        gamma <- gamma_prop
+        accepted[i] <- 1
+    }
+    else accepted[i] <- 0
+}
