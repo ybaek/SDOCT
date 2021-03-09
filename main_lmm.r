@@ -117,9 +117,3 @@ pars <- pars[,(burnin + 1):ncol(pars)]
 
 saveRDS(pars, "data/samples.rds")
 saveRDS(pars_indices, "data/indices.rds")
-# mu_hat <- rowMeans(pars[pars_indices[[1]], ])
-# Theta_hat <- matrix(rowMeans(pars[pars_indices[[2]], ]), R)
-# gamma_hat <- mean(pars[pars_indices[[5]], ])
-# f_hat <- U_hat %*% Theta_hat %*% exp(-.5 * gamma^-2 * t(K2)^2)
-# beta_hat <- solve(crossprod(z_train), crossprod(z_train, f_hat)) # inverse map to linear scale
-# f_proj <- z_train %*% beta_hat # best linear approximation to f_hat
