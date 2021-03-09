@@ -9,20 +9,10 @@ source("utilities.r", local = utils)
 
 # 1. We define a norm informed by the spatial structure
 # Involves a length scale tuning parameter (for us it should hardly matter)
-sparse_scale <- 10 * (2 * pi) / (QUADRANT_NO * 4) # distance > this, sparse
+sparse_scale <- 15 * (2 * pi) / (QUADRANT_NO * 4) # distance > this, sparse
 Cz <- as(utils$wendland_c2(D1, sparse_scale), "symmetricMatrix")
-pairs <- matrix(0, P, N * (N - 1) / 2) # N * (N-1)/2 pairwise differences
-count <- 1
-for (i in 1:(N - 1)) {
-    for (j in (i + 1):N) {
-        pairs[, count] <- z_train[i, ] - z_train[j, ]
-        count <- count + 1
-    }
-}
-wns <- colSums(pairs * solve(Cz, pairs))
-Dz <- matrix(0, N, N)
-Dz[lower.tri(Dz)] <- wns
-Dz[upper.tri(Dz)] <- t(Dz)[upper.tri(Dz)]
+ru_Cz <- chol(Cz)
+Dz <- as.matrix(dist(t(forwardsolve(t(ru_Cz), t(z_train)))))^2
 
 # 2. We can now form the EXACT kernel matrix
 # Note this involves another choice of length scale parameter
@@ -31,10 +21,9 @@ Kz <- exp(-Dz * lambda)
 
 # 3. The approximate kernel is defined by random Fourier bases
 # For details, see the paper itself
-rl_Cz <- t(chol(Cz))
 Phi <- matrix(0, P, N) # approximate eigenfunctions
 for (p in seq(P)) {
-    freq <- as.numeric(sqrt(2 * lambda) * forwardsolve(rl_Cz, rnorm(P)))
+    freq <- as.numeric(sqrt(2 * lambda) * forwardsolve(t(ru_Cz), rnorm(P)))
     phase <- runif(1) * (2 * pi)
     Phi[p, ] <- sqrt(2 / P) * cos(t(z_train %*% freq) + phase)
 }
@@ -44,15 +33,10 @@ incl_ind <- min(which((cumsum(Kz_ed$values) / sum(Kz_ed$values)) > .9))
 U_hat <- Kz_ed$vectors[, 1:incl_ind]
 diag_hat <- Kz_ed$values[1:incl_ind]
 
-# 4. Map back to original linear bases are easily obtained
-# Since we have full-rank design, there is NO ambiguity contrary to the original paper
-beta_map <- solve(crossprod(z_train), crossprod(z_train, U_hat))
-
-# 5. Gibbs sampler for a standard, conjugate multivariate linear model
+# 4. Gibbs sampler for a standard, conjugate multivariate linear model
 # Initialization of constants and variable containers
 Qstar <- dim(K2)[2]
 R <- incl_ind
-mu <- colMeans(y_train)
 Sig0 <- exp(-K2[knots_inds_y, ]^2 / 4) # sqrt(2) = diagonal 1 block
 Ru0 <- chol(Sig0)
 Sig0inv <- tcrossprod(solve(Ru0))
@@ -71,18 +55,20 @@ for (i in 1:nrow(mis_inds)) {
     nmeans <- mean(y_train[r, neighbors], na.rm = T)
     y_train[r, j] <- ifelse(is.nan(nmeans), mean(y_train[r, ], na.rm = T), nmeans)
 }
+mu <- colMeans(y_train)
 ## (MCMC variables)
 iter <- 10000
 mh_sd <- 1.7
 accepted <- numeric(iter)
 ## (array storing all relevant parameters)
 pars <- matrix(0, length(mu) + length(Theta) + Qstar * (Qstar + 1) / 2 + 2 + nrow(mis_inds), iter)
-colnames(pars) <- c(
-    paste0("mu[", seq(Q), "]"),
-    paste0("Theta[", seq(R * Qstar), "]"),
-    paste0("Siginv[", seq(Qstar * (Qstar + 1) / 2), "]"),
-    "sig2inv", "gamma"
-)
+## (For indexing)
+pars_size <- c(0, length(mu), length(Theta), Qstar * (Qstar + 1) / 2, 1, 1, nrow(mis_inds), nrow(pars))
+pars_size <- rev(rev(cumsum(pars_size))[-1])
+pars_indices <- vector(mode = "list", length = length(pars_size) - 1)
+for (i in 1:(length(pars_size) - 1)) {
+    pars_indices[[i]] <- seq(pars_size[i] + 1, pars_size[i + 1])
+}
 ## (Actual sampling)
 for (i in seq(iter)) {
     mask <- exp(-.5 * gamma^-2 * K2^2)
@@ -126,3 +112,14 @@ for (i in seq(iter)) {
     #
     pars[, i] <- c(mu, c(Theta), c(Siginv[lower.tri(Siginv, diag = T)]), sig2inv, gamma, y_train[mis_inds])
 }
+burnin <- 1000
+pars <- pars[,(burnin + 1):ncol(pars)]
+
+saveRDS(pars, "data/samples.rds")
+saveRDS(pars_indices, "data/indices.rds")
+# mu_hat <- rowMeans(pars[pars_indices[[1]], ])
+# Theta_hat <- matrix(rowMeans(pars[pars_indices[[2]], ]), R)
+# gamma_hat <- mean(pars[pars_indices[[5]], ])
+# f_hat <- U_hat %*% Theta_hat %*% exp(-.5 * gamma^-2 * t(K2)^2)
+# beta_hat <- solve(crossprod(z_train), crossprod(z_train, f_hat)) # inverse map to linear scale
+# f_proj <- z_train %*% beta_hat # best linear approximation to f_hat
