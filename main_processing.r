@@ -42,8 +42,8 @@ y_test <- y[(N+1):nrow(y), ]
 # (Design set of knots is itself a tuning parameter)
 Nknots_y <- 16
 full_y  <- as.matrix(expand.grid(1:8, 1:8))
-knots_inds_y <- c(10, 12, 13, 15, 26, 28, 29, 31,
-                 34, 36, 37, 39, 50, 52, 53, 55)
+knots_inds_y <- c(11, 14, 18, 20, 21, 23, 27, 30,
+                  35, 38, 42, 44, 45, 47, 51, 54)
 knots_y <- full_y[knots_inds_y, ]
 D2 <- as.matrix(dist(full_y))
 K2 <- D2[, knots_inds_y]
@@ -55,11 +55,3 @@ D1 <- as.matrix(dist(1:P * (2*pi) / P))
 # 4. Finding out missing values
 # We don't need to impute them (if so, only for convenience sake)
 mis_inds <- which(is.na(y_train), arr.ind = T)
-for (i in 1:nrow(mis_inds)) {
-    r <- mis_inds[i, 1]
-    j <- mis_inds[i, 2]
-    neighbors <- c(j-9, j-8, j-7, j-1, j+1, j+7, j+8, j+9)
-    neighbors <- neighbors[neighbors > 0 & neighbors < Q]
-    nmeans <- mean(y_train[r, neighbors], na.rm = T)
-    y_train[r, j] <- ifelse(is.nan(nmeans), mean(y_train[r, ], na.rm = T), nmeans)
-}
