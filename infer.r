@@ -1,6 +1,6 @@
 # Inference script
+library(caTools)
 library(coda)
-library(ROCR)
 pars <- readRDS("data/samples.rds")
 pars_indices <- readRDS("data/indices.rds")
 
@@ -32,10 +32,5 @@ labels_test <- labels[(N + 1):nrow(z)]
 sdm_pred <- apply(y_test, 1, function(x) mean(x < .02, na.rm = T))
 model_pred <- predict(glm(labels_test ~ f_proj_test, family = "binomial"), type = "response")
 #
-model_pred_obj1 <- prediction(sdm_pred, labels_test)
-model_pred_obj2 <- prediction(model_pred, labels_test)
-model_perf_obj1 <- performance(model_pred_obj1, "tpr", "fpr")
-model_perf_obj2 <- performance(model_pred_obj2, "tpr", "fpr")
-#
-plot(model_perf_obj1)
-plot(model_perf_obj2, add = T, col = 2)
+caTools::colAUC(cbind("SDM" = sdm_pred, "Logistic" = model_pred),
+                labels_test, plotROC = TRUE)
