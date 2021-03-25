@@ -60,6 +60,6 @@ burnin <- 2000
 pars <- pars[, (burnin + 1):ncol(pars)]
 lps  <- lps[, (burnin + 1):ncol(lps)]
 
-saveRDS(pars, "data/samples1.rds")
-saveRDS(pars_indices, "data/indices1.rds")
-saveRDS(lps, "data/lps1.rds")
+saveRDS(pars, "data/samples5.rds")
+saveRDS(pars_indices, "data/indices5.rds")
+saveRDS(lps, "data/lps5.rds")

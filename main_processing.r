@@ -59,7 +59,7 @@ K2 <- D2[, knots_inds_y]
 
 # 3. distance matrix of the cpRNFL
 # to be used later as valid weighting
-D1 <- as.matrix(dist(1:P * (2*pi) / P))
+# D1 <- as.matrix(dist(1:P * (2*pi) / P))
 
 # 4. Finding out missing values
 # We don't need to impute them (if so, only for convenience sake)
@@ -68,17 +68,17 @@ mis_inds <- which(is.na(y_train), arr.ind = T)
 ######
 library(Matrix)
 # Involves a length scale tuning parameter (for us it should hardly matter)
-sparse_scale <- 15 * (2 * pi) / (QUADRANT_NO * 4) # distance > this, sparse
-Cz <- as(utils$wendland_c2(D1, sparse_scale), "symmetricMatrix")
-ru_Cz <- chol(Cz)
-Dz <- as.matrix(dist(t(forwardsolve(t(ru_Cz), t(z_train)))))^2
+# sparse_scale <- 15 * (2 * pi) / (QUADRANT_NO * 4) # distance > this, sparse
+# Cz <- as(utils$wendland_c2(D1, sparse_scale), "symmetricMatrix")
+# ru_Cz <- chol(Cz)
+# Dz <- as.matrix(dist(t(forwardsolve(t(ru_Cz), t(z_train)))))^2
 
 # Tuning parameter whose importance we should investigate!
-lambda <- 10 # can vary 
+lambda <- 2 # can vary 
 # The approximate kernel is defined by random Fourier bases
 Phi <- matrix(0, P, N_train) # approximate eigenfunctions
 for (p in seq(P)) {
-    freq <- as.numeric(sqrt(2 * lambda) * forwardsolve(t(ru_Cz), rnorm(P)))
+    freq <- as.numeric(sqrt(2 * lambda) * rnorm(P))
     phase <- runif(1) * (2 * pi)
     Phi[p, ] <- sqrt(2 / P) * cos(t(z_train %*% freq) + phase)
 }
