@@ -1,6 +1,5 @@
 # Inference script
 library(coda)
-library(genlasso) # Not yet
 library(loo)
 library(pROC)
 source("main_processing.r")
@@ -48,7 +47,7 @@ mis_inds <- which(is.na(y_test), arr.ind = TRUE)
 y_test2  <- y_test
 y_test2[mis_inds] <- rnorm(nrow(mis_inds), mean(y_test, na.rm = T), sd(y_test, na.rm = T))
 # Threshold parameter is found to be optimizing WITHIN the training set
-raw_sdm <- apply(y_test, 1, function(x) mean(x < .02, na.rm = T))
+raw_sdm <- apply(y_test, 1, function(x) mean(x < 0, na.rm = T))
 raw_coef <- coef(glm(labels_train ~ y_train, family = "binomial"))
 raw_preds <- (1 + exp(-raw_coef[1] - y_test2 %*% raw_coef[-1]))^-1
 # PROBLEM: latent factors are not directly interpretable on thickness scale
@@ -91,7 +90,6 @@ dev.off()
 #
 png("images/roc_sdm.png")
 plot(roc_sdm1, col = 4)
-plot(roc_sdm11, col = 3, add = T)
 plot(roc_sdm2, add = T, col = 2)
 plot(sdm_ci1, type = "shape", col = scales::alpha(4, .2), no.roc = TRUE)
 plot(sdm_ci2, type = "shape", col = scales::alpha(2, .2), no.roc = TRUE)
@@ -104,7 +102,28 @@ legend(
 )
 dev.off()
 
-auc(roc_preds1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp") / .15
-auc(roc_preds2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp") / .15
-auc(roc_sdm1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp") / .15
-auc(roc_sdm2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp") / .15
+ci.auc(auc(roc_preds1), method = "boot")
+ci.auc(auc(roc_preds2), method = "boot")
+ci.auc(auc(roc_sdm1), method = "boot")
+ci.auc(auc(roc_sdm2), method = "boot")
+ci.auc(auc(roc_preds1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15
+ci.auc(auc(roc_preds2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15
+ci.auc(auc(roc_sdm1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15
+ci.auc(auc(roc_sdm2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15
+
+#
+# Generalized LASSO post-processing
+# Mostly to reveal tricky inferential issues
+library(genlasso)
+full_fit <- fusedlasso1d(y = f_proj_full[, 35], X = z_train, gamma = 1.0)
+throw_fit1 <- fusedlasso1d(y = f_proj_full[, 35], X = z_train[, 1:96], gamma = 1.0)
+throw_fit2 <- fusedlasso1d(y = f_proj_full[, 35], X = z_train[, 1:192], gamma = 1.0)
+png("images/postproc.png")
+plot(full_fit$beta[, 1600], type = "l",
+    xlab = "p", ylab = expression(beta[35]), col = scales::alpha(1, .5))
+lines(full_fit$beta[, 1500], col = scales::alpha(1, .5))
+lines(full_fit$beta[, 1300], col = scales::alpha(1, .5))
+lines(full_fit$beta[, 1200], col = scales::alpha(1, .5))
+abline(v = c(96, 192), col = scales::alpha(2, .9), lwd = 2)
+text(x = c(48, 144, 240), y = .65, labels = c("I", "T", "S"))
+dev.off()
