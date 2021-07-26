@@ -43,6 +43,12 @@ wendland_c2 <- function(d, rho) {
   return( (1+4 * d/rho) * (1-d/rho)^4 * (d < rho) )
 }
 
+form_kernel_matrix <- function(X, phi) {
+  # Forms a kernel matrix based on predictors X for nonlinear regression
+  # Tuning parameter: phi > 0
+    exp(-as.matrix(dist(X))^2 / phi)
+}
+
 ## Code to map an NxN regular rectangular grid to an adjacency matrix
 adj_grid <- function(N, queen = FALSE, order = 1) {
   # Returns an N^2 x N^2 binary adjacency matrix
