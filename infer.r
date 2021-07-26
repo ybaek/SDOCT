@@ -6,14 +6,21 @@ source("main_processing.r")
 pars <- readRDS("data/samples2.rds")
 pars_indices <- readRDS("data/indices2.rds")
 lps <- readRDS("data/lps2.rds")
+demo_df <- readRDS("data/demo.rds")
+# Preprocess race response
+demo_df$race_nih[demo_df$race_nih %in%
+    c("Chinese", "Eastern", "Indian", "Japanese")] <- "Asian"
+demo_df$race_nih[demo_df$race_nih %in%
+    c("American Indian or Alaska Native",
+      "Declined", "Not Reported", "Unknown")] <- "Others"
 
 # Diagnosis
 # Trace plots reveal error precision posterior seems to be bimodal
 # (Is that a problem? we will see..)
 # (The intercept and the missing values are the only ones w/ ESS < 1000)
-ess <- coda::effectiveSize(t(pars))
-ess_lp <- coda::effectiveSize(t(lps))
-acf(t(pars[c(1:3, 64 + 1:3), ])) # cross-correlation seems to be the problem
+# ess <- coda::effectiveSize(t(pars))
+# ess_lp <- coda::effectiveSize(t(lps))
+# acf(t(pars[c(1:3, 64 + 1:3), ])) # cross-correlation seems to be the problem
 
 # Which model should we choose for a bandwidth parameter?
 # WAIC / LOOCV statistic
@@ -48,22 +55,28 @@ y_test2  <- y_test
 y_test2[mis_inds] <- rnorm(nrow(mis_inds), mean(y_test, na.rm = T), sd(y_test, na.rm = T))
 # Threshold parameter is found to be optimizing WITHIN the training set
 raw_sdm <- apply(y_test, 1, function(x) mean(x < 0, na.rm = T))
-raw_coef <- coef(glm(labels_train ~ y_train, family = "binomial"))
-raw_preds <- (1 + exp(-raw_coef[1] - y_test2 %*% raw_coef[-1]))^-1
+rawdes <- cbind(labels_train, demo_df[jj_train, ], y_train)
+rawdespred <- cbind(labels_test, demo_df[jj_test, ], y_test)
+rawglm <- glm(labels_train ~ . - race_primary, data = rawdes, family = "binomial")
+raw_preds <- predict(rawglm, rawdespred, type = "response")
 # PROBLEM: latent factors are not directly interpretable on thickness scale
 # the scale in particular is not directly comparable to SDM.
 model_sdm1 <- apply(f_proj_test, 1, function(x) mean(x < 0.))
 model_sdm2 <- apply(f_proj_test_full, 1, function(x) mean(x < 0.))
-model_coef1 <- coef(glm(labels_train ~ f_proj, family = "binomial"))
-model_coef2 <- coef(glm(labels_train ~ f_proj_full, family = "binomial"))
-incl_inds <- !is.na(model_coef2)[-1]
-model_preds1 <- (1 + exp(-model_coef1[1] - f_proj_test %*% model_coef1[-1]))^-1
-model_preds2 <- (1 + exp(-model_coef2[1] - f_proj_test_full[,incl_inds] %*% model_coef2[-1][incl_inds]))^-1
+## Formatting for logistic regression
+des1 <- cbind(labels_train, demo_df[jj_train, ], f_proj)
+des2 <- cbind(labels_train, demo_df[jj_train, ], f_proj_full)
+despred1 <- cbind(demo_df[jj_test, ], f_proj_test)
+despred2 <- cbind(demo_df[jj_test, ], f_proj_test_full)
+glmfit1 <- glm(labels_train ~ . - race_primary, data = des1, family = "binomial")
+glmfit2 <- glm(labels_train ~ . - race_primary, data = des2, family = "binomial")
+model_preds1 <- predict(glmfit1, despred1, type = "response")
+model_preds2 <- predict(glmfit2, despred2, type = "response")
 #
 roc_preds1 <- pROC::roc(labels_test, c(model_preds1))
 preds_ci1 <- ci.se(roc_preds1, specifities = seq(0, 1, .01))
 roc_preds11 <- pROC::roc(labels_test, c(model_preds2))
-preds_ci11 <- ci.se(roc_preds2, specifities = seq(0, 1, .01))
+preds_ci11 <- ci.se(roc_preds11, specifities = seq(0, 1, .01))
 roc_preds2 <- pROC::roc(labels_test, c(raw_preds))
 preds_ci2 <- ci.se(roc_preds2, specifities = seq(0, 1, .01))
 roc_sdm1 <- pROC::roc(labels_test, c(model_sdm1))
@@ -75,7 +88,7 @@ sdm_ci2 <- ci.se(roc_sdm2, specifities = seq(0, .1, .01))
 #
 png("images/roc_logistic.png")
 plot(roc_preds1, col = 4)
-plot(roc_preds11, col = 3, add = T)
+# plot(roc_preds11, col = 3, add = T)
 plot(roc_preds2, add = T, col = 2)
 plot(preds_ci1, type = "shape", col = scales::alpha(4, .2), no.roc = TRUE)
 plot(preds_ci2, type = "shape", col = scales::alpha(2, .2), no.roc = TRUE)
