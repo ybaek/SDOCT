@@ -46,7 +46,7 @@ wendland_c2 <- function(d, rho) {
 form_kernel_matrix <- function(X, phi) {
   # Forms a kernel matrix based on predictors X for nonlinear regression
   # Tuning parameter: phi > 0
-    exp(-as.matrix(dist(X))^2 / phi)
+    exp(-as.matrix(dist(X))^2 * phi)
 }
 
 ## Code to map an NxN regular rectangular grid to an adjacency matrix

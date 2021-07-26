@@ -50,15 +50,13 @@ y_test  <- y[jj_test, ]
 # (Design set of knots is itself a tuning parameter)
 Nknots_y <- 16
 full_y  <- as.matrix(expand.grid(1:8, 1:8))
-knots_inds_y <- c(11, 14, 18, 20, 21, 23, 27, 30,
-                  35, 38, 42, 44, 45, 47, 51, 54)
-knots_y <- full_y[knots_inds_y, ]
-D2 <- as.matrix(dist(full_y))
-K2 <- D2[, knots_inds_y]
+knots <- c(11, 14, 18, 20, 21, 23, 27, 30,
+           35, 38, 42, 44, 45, 47, 51, 54)
+distMat <- as.matrix(dist(full_y))
 
+# [OUTDATED]
 # 3. distance matrix of the cpRNFL
 # to be used later as valid weighting
-# D1 <- as.matrix(dist(1:P * (2*pi) / P))
 
 # 4. Finding out missing values (but not impute them)
 # dim(which(is.na(y)), arr.ind = TRUE)
