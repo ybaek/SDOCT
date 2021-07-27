@@ -50,9 +50,9 @@ glmfit <- glm(labels_train ~ . - race_primary, data = des, family = "binomial")
 model_preds <- predict(glmfit, despred, type = "response")
 #
 roc_model <- pROC::roc(labels_test, c(model_preds))
-ci_model  <- ci.se(roc_preds1, specifities = seq(0, 1, .01))
+ci_model  <- ci.se(roc_model, specifities = seq(0, 1, .01))
 roc_raw <- pROC::roc(labels_test, c(raw_preds))
-ci_raw  <- ci.se(roc_preds2, specifities = seq(0, 1, .01))
+ci_raw  <- ci.se(roc_raw, specifities = seq(0, 1, .01))
 # roc_sdm1 <- pROC::roc(labels_test, c(model_sdm))
 # sdm_ci1 <- ci.se(roc_sdm1, specifities = seq(0, .1, .01))
 # roc_sdm2 <- pROC::roc(labels_test, c(raw_sdm))
@@ -61,7 +61,7 @@ ci_raw  <- ci.se(roc_preds2, specifities = seq(0, 1, .01))
 unadj_pauc <- function(roc) {
     # Unnormalized, un-corrected partial AUC in 15% FPR range
     pROC::auc(roc, partial.auc = c(.85, 1),
-        partial.auto.correct = F, partial.auc.focus = "sensitivity")
+        partial.auto.correct = F, partial.auc.focus = "sp")
 }
 auc_tab <- rbind(
     c(ci.auc(auc(roc_model), method = "boot"),
@@ -71,19 +71,6 @@ pauc_tab <- rbind(
     c(ci.auc(unadj_pauc(roc_model)) / (1 - .85),
       ci.auc(unadj_pauc(roc_raw)) / (1 - .85))
 )
-roc.test(auc(roc_model), auc(roc_raw)) # p == .028
+# Significance in two randomized hypothesis tests on ROC curves
+roc.test(auc(roc_model), auc(roc_raw))
 roc.test(unadj_pauc(roc_model), unadj_pauc(roc_raw))
-#
-png("images/roc_logistic.png")
-plot(roc_model, col = 4)
-plot(roc_raw, add = T, col = 2)
-plot(ci_model, type = "shape", col = scales::alpha(4, .2), no.roc = TRUE)
-plot(ci_raw, type = "shape", col = scales::alpha(2, .2), no.roc = TRUE)
-abline(v = .85, lty = 2)
-legend(
-    "bottomright",
-    legend = c("Raw", "Model"),
-    col    = c(2, 4),
-    lty    = 1
-)
-dev.off()
