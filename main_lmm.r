@@ -16,7 +16,7 @@ for (iter in seq(M)) {
     U_svd <- K_svd$u[, 1:cutoff]
     d_svd <- K_svd$d[1:cutoff]
     # only a heuristic
-    mcmc_opts$delta <- mcmc_opts$delta / kernel_choices[iter] * 2
+    # mcmc_opts$delta <- mcmc_opts$delta / kernel_choices[iter] * 2
     results[[iter]] <-
         my_gibbs(y_train, U_svd, d_svd, prior_Prec, distMat, knots, mcmc_opts)
 }

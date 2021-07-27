@@ -1,11 +1,7 @@
-# Inference script
 library(coda)
-library(loo)
 library(pROC)
 source("main_processing.r")
-pars <- readRDS("data/samples2.rds")
-pars_indices <- readRDS("data/indices2.rds")
-lps <- readRDS("data/lps2.rds")
+fit <- readRDS("data/fit_results.rds")
 demo_df <- readRDS("data/demo.rds")
 # Preprocess race response
 demo_df$race_nih[demo_df$race_nih %in%
@@ -13,65 +9,44 @@ demo_df$race_nih[demo_df$race_nih %in%
 demo_df$race_nih[demo_df$race_nih %in%
     c("American Indian or Alaska Native",
       "Declined", "Not Reported", "Unknown")] <- "Others"
-
-# Diagnosis
-# Trace plots reveal error precision posterior seems to be bimodal
-# (Is that a problem? we will see..)
-# (The intercept and the missing values are the only ones w/ ESS < 1000)
-# ess <- coda::effectiveSize(t(pars))
-# ess_lp <- coda::effectiveSize(t(lps))
-# acf(t(pars[c(1:3, 64 + 1:3), ])) # cross-correlation seems to be the problem
-
-# Which model should we choose for a bandwidth parameter?
-# WAIC / LOOCV statistic
-# loo::loo(lps)$elpd_loo / 1e+6 # log-density scale
-# loo::waic(lps)$waic / 1e+7 # deviance scale
-
-# Posterior summaries
-mu_hat <- rowMeans(pars[pars_indices[[1]], ])
-Theta_hat <- matrix(rowMeans(pars[pars_indices[[2]], ]), R)
-Siginv_hat <- matrix(0, Qstar, Qstar)
-Siginv_hat[lower.tri(Siginv_hat, diag = TRUE)] <- rowMeans(pars[pars_indices[[3]], ])
-Siginv_hat[upper.tri(Siginv_hat)] <- t(Siginv_hat)[upper.tri(Siginv_hat)]
-
-gamma_hat <- mean(pars[pars_indices[[5]], ])
-mask_hat <- exp(-.5 * gamma_hat^-2 * t(K2)^2)
-f_hat <- U_hat %*% Theta_hat
-beta_hat <- solve(crossprod(z_train), crossprod(z_train, f_hat)) # inverse map to linear scale
-f_proj <- z_train %*% beta_hat # best linear approximation to f_hat
-f_proj_test <- z_test %*% beta_hat
-#
-f_proj_full <- f_proj %*% mask_hat
-f_proj_test_full <- f_proj_test %*% mask_hat
-
-## (Labels were NOT provided in the actual regression model)
-labels_train <- labels[jj_train]
-labels_test  <- labels[jj_test]
-
-# Compare: standard deviation map
-# How do we choose where to threshold??
+# Extract coefficient posterior means
+burn_in <- 2000
+intercept_pm <- colMeans(fit$pars[-seq(burn_in), 1:64])
+theta_pm <- matrix(colMeans(fit$pars[-seq(burn_in), 65:128]), 4)
+sigma_pm <- mean(fit$pars[-seq(burn_in), 319])^-.5
+gamma_pm <- mean(fit$pars[-seq(burn_in), 320])
+convMat  <- exp(-distMat[, knots]^2 / gamma_pm)
+# Projection step: to obtain estimated deviations
+K_train <- utils$form_kernel_matrix(z_train, 2)
+u_train <- svd(K_train)$u[, 1:4]
+f_hat   <- u_train %*% theta_pm
+f_hat_full <- f_hat %*% t(convMat)
+K_test  <- utils$form_kernel_matrix(z_test, 2)
+u_test  <- svd(K_test)$u[, 1:4]
+f_hat_test  <- u_test %*% theta_pm
+f_test_full <- f_hat_test %*% t(convMat)
+# Comparison: Using raw data necessarily requires imputation
 mis_inds <- which(is.na(y_test), arr.ind = TRUE)
 y_test2  <- y_test
 y_test2[mis_inds] <- rnorm(nrow(mis_inds), mean(y_test, na.rm = T), sd(y_test, na.rm = T))
-# Threshold parameter is found to be optimizing WITHIN the training set
-raw_sdm <- apply(y_test, 1, function(x) mean(x < 0, na.rm = T))
+# Glaucoma labels: NOT provided at first stage
+labels_train <- labels[jj_train]
+labels_test  <- labels[jj_test]
+#
+## Second stage "model" wants to actually predict glaucoma labels
+## To prevent data leakage, training data should be "used twice"
+# Case 1: using raw data summary statistics / training logistic model
+raw_sdm <- apply(y_test2, 1, function(x) mean(x < 0, na.rm = T))
 rawdes <- cbind(labels_train, demo_df[jj_train, ], y_train)
-rawdespred <- cbind(labels_test, demo_df[jj_test, ], y_test)
+rawdespred <- cbind(labels_test, demo_df[jj_test, ], y_test2)
 rawglm <- glm(labels_train ~ . - race_primary, data = rawdes, family = "binomial")
 raw_preds <- predict(rawglm, rawdespred, type = "response")
-# PROBLEM: latent factors are not directly interpretable on thickness scale
-# the scale in particular is not directly comparable to SDM.
-model_sdm1 <- apply(f_proj_test, 1, function(x) mean(x < 0.))
-model_sdm2 <- apply(f_proj_test_full, 1, function(x) mean(x < 0.))
-## Formatting for logistic regression
-des1 <- cbind(labels_train, demo_df[jj_train, ], f_proj)
-des2 <- cbind(labels_train, demo_df[jj_train, ], f_proj_full)
-despred1 <- cbind(demo_df[jj_test, ], f_proj_test)
-despred2 <- cbind(demo_df[jj_test, ], f_proj_test_full)
-glmfit1 <- glm(labels_train ~ . - race_primary, data = des1, family = "binomial")
-glmfit2 <- glm(labels_train ~ . - race_primary, data = des2, family = "binomial")
-model_preds1 <- predict(glmfit1, despred1, type = "response")
-model_preds2 <- predict(glmfit2, despred2, type = "response")
+# Case 2: using denoised deviations' summary statistics / training logistic model
+model_sdm <- apply(f_hat_test, 1, function(x) mean(x < 0.))
+des <- cbind(labels_train, demo_df[jj_train, ], f_hat)
+despred <- cbind(demo_df[jj_test, ], f_hat_test)
+glmfit <- glm(labels_train ~ . - race_primary, data = des, family = "binomial")
+model_preds <- predict(glmfit, despred, type = "response")
 #
 roc_preds1 <- pROC::roc(labels_test, c(model_preds1))
 preds_ci1 <- ci.se(roc_preds1, specifities = seq(0, 1, .01))
@@ -123,20 +98,3 @@ ci.auc(auc(roc_preds1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, par
 ci.auc(auc(roc_preds2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15
 ci.auc(auc(roc_sdm1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15
 ci.auc(auc(roc_sdm2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15
-
-#
-# Generalized LASSO post-processing
-# Mostly to reveal tricky inferential issues
-library(genlasso)
-full_fit <- fusedlasso1d(y = f_proj_full[, 35], X = z_train, gamma = 1.0)
-throw_fit1 <- fusedlasso1d(y = f_proj_full[, 35], X = z_train[, 1:96], gamma = 1.0)
-throw_fit2 <- fusedlasso1d(y = f_proj_full[, 35], X = z_train[, 1:192], gamma = 1.0)
-png("images/postproc.png")
-plot(full_fit$beta[, 1600], type = "l",
-    xlab = "p", ylab = expression(beta[35]), col = scales::alpha(1, .5))
-lines(full_fit$beta[, 1500], col = scales::alpha(1, .5))
-lines(full_fit$beta[, 1300], col = scales::alpha(1, .5))
-lines(full_fit$beta[, 1200], col = scales::alpha(1, .5))
-abline(v = c(96, 192), col = scales::alpha(2, .9), lwd = 2)
-text(x = c(48, 144, 240), y = .65, labels = c("I", "T", "S"))
-dev.off()
