@@ -23,9 +23,8 @@ my_gibbs <- function(Y, U_svd, d_svd, prior_Prec, distMat, knots, mcmc_opts) {
     )
     pars <- matrix(0, N_samples, npars) # Parameter space
     lps  <- matrix(0, N_samples, N) # Observable units space
-    acceptances <- numeric(N_samples) # For Metropolis alg.
-    # Initialize missing values on the fly,
-    # using a spatial neighborhood average
+    acceptances <- numeric(N_samples) # Tracking 1D Metropolis
+    # Initialize missing values on the fly using spatial neighborhood averages
     for (i in seq(Nmis)) {
         r <- mis_inds[i, 1]
         j <- mis_inds[i, 2]
@@ -98,14 +97,20 @@ my_gibbs <- function(Y, U_svd, d_svd, prior_Prec, distMat, knots, mcmc_opts) {
         }
     }
     t2 <- Sys.time()
+    time <- t2 - t1
     #
     cat(
-        sprintf("Drawing %d samples done in %.2f secs. Metropolis acceptance ratio was %.2f.\n",
-            N_samples, t2 - t1, mean(acceptances))
+        sprintf(paste0(
+                "Drawing %d samples done in %.2f ", attr(time, "units"),
+                ". Metropolis acceptance ratio was %.2f.\n"),
+                N_samples, time, mean(acceptances))
     )
-    list(
+    out <- list(
         pars = pars,
         lps  = lps,
         acceptances = acceptances
     )
+    attr(out, "time") <- as.numeric(time, units = "secs")
+    attr(out, "ar") <- mean(acceptances)
+    out
 }
