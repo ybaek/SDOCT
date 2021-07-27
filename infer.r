@@ -1,5 +1,6 @@
 library(coda)
 library(pROC)
+library(scales)
 source("main_processing.r")
 fit <- readRDS("data/fit_results.rds")
 demo_df <- readRDS("data/demo.rds")
@@ -36,15 +37,14 @@ labels_test  <- labels[jj_test]
 ## Second stage "model" wants to actually predict glaucoma labels
 ## To prevent data leakage, training data should be "used twice"
 # Case 1: using raw data summary statistics / training logistic model
-thres <- 0.
-raw_sdm <- apply(y_test2, 1, function(x) mean(x < thres, na.rm = T))
+thres <- apply(y_test, 2, median, na.rm = T)
+raw_sdm <- apply(y_test, 1, function(x) mean(x < thres, na.rm = T))
 rawdes <- cbind(labels_train, demo_df[jj_train, ], y_train)
 rawdespred <- cbind(labels_test, demo_df[jj_test, ], y_test2)
 rawglm <- glm(labels_train ~ . - race_primary, data = rawdes, family = "binomial")
 raw_preds <- predict(rawglm, rawdespred, type = "response")
 # Case 2: using denoised deviations' summary statistics / training logistic model
-thres <- 0.
-model_sdm <- apply(f_test_full, 1, function(x) mean(x < thres))
+model_sdm <- apply(f_test_full, 1, function(x) mean(x < 0.))
 des <- cbind(labels_train, demo_df[jj_train, ], f_hat_full)
 despred <- cbind(demo_df[jj_test, ], f_test_full)
 glmfit <- glm(labels_train ~ . - race_primary, data = des, family = "binomial")
@@ -58,6 +58,19 @@ roc_sdm1 <- pROC::roc(labels_test, c(model_sdm))
 sdm_ci1 <- ci.se(roc_sdm1, specifities = seq(0, .1, .01))
 roc_sdm2 <- pROC::roc(labels_test, c(raw_sdm))
 sdm_ci2 <- ci.se(roc_sdm2, specifities = seq(0, .1, .01))
+#
+auc_tab <- rbind(
+    c(ci.auc(auc(roc_preds1), method = "boot"),
+      ci.auc(auc(roc_preds2), method = "boot")),
+    c(ci.auc(auc(roc_sdm1), method = "boot"),
+      ci.auc(auc(roc_sdm2), method = "boot"))
+)
+pauc_tab <- rbind(
+    c(ci.auc(auc(roc_preds1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15,
+      ci.auc(auc(roc_preds2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15),
+    c(ci.auc(auc(roc_sdm1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15,
+      ci.auc(auc(roc_sdm2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15)
+)
 #
 png("images/roc_logistic.png")
 plot(roc_preds1, col = 4)
@@ -86,18 +99,3 @@ legend(
     lty    = 1
 )
 dev.off()
-
-auc_tab <- rbind(
-    c(ci.auc(auc(roc_preds1), method = "boot"),
-      ci.auc(auc(roc_preds2), method = "boot")),
-    c(ci.auc(auc(roc_sdm1), method = "boot"),
-      ci.auc(auc(roc_sdm2), method = "boot"))
-)
-pauc_tab <- rbind(
-    c(ci.auc(auc(roc_preds1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15,
-      ci.auc(auc(roc_preds2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15),
-    c(ci.auc(auc(roc_sdm1, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15,
-      ci.auc(auc(roc_sdm2, partial.auc = c(.85, 1), partial.auc.correct = FALSE, partial.auc.focus = "sp")) / .15)
-)
-
-
