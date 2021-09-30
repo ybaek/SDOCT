@@ -1,4 +1,4 @@
-library(coda)
+library(lme4)
 library(pROC)
 library(scales)
 source("main_processing.r")
@@ -30,34 +30,33 @@ f_test_full <- sweep(f_hat_test %*% t(convMat), 2, intercept_pm, "+")
 mis_inds <- which(is.na(y_test), arr.ind = TRUE)
 y_test2  <- y_test
 y_test2[mis_inds] <- rnorm(nrow(mis_inds), mean(y_test, na.rm = T), sd(y_test, na.rm = T))
-# Glaucoma labels: NOT provided at first stage
+# Glaucoma labels
 labels_train <- labels[jj_train]
 labels_test  <- labels[jj_test]
+# Patient IDs
+id_train <- dataset$id[jj_train]
+id_test  <- dataset$id[jj_test]
 #
 ## Second stage "model" wants to actually predict glaucoma labels
 ## To prevent data leakage, training data should be "used twice"
 # Case 1: using raw data summary statistics / training logistic model
-# raw_sdm <- apply(y_test, 1, function(x) mean(x < .02, na.rm = T))
-rawdes <- cbind(labels_train, demo_df[jj_train, ], y_train)
-rawdespred <- cbind(labels_test, demo_df[jj_test, ], y_test2)
-rawglm <- glm(labels_train ~ . - race_primary, data = rawdes, family = "binomial")
+rawdes <- cbind(labels_train, id = id_train, demo_df[jj_train, ], y_train)
+rawdespred <- cbind(labels_test, id = id_test, demo_df[jj_test, ], y_test2)
+rawglm <- glm(labels_train ~ . - id - race_primary - race_nih +
+              relevel(as.factor(race_nih), 4),
+              data = rawdes, family = "binomial")
 raw_preds <- predict(rawglm, rawdespred, type = "response")
-# Case 2: using denoised deviations' summary statistics / training logistic model
-# model_sdm <- apply(f_test_full, 1, function(x) mean(x < 0.))
-des <- cbind(labels_train, demo_df[jj_train, ], f_hat_full)
-despred <- cbind(demo_df[jj_test, ], f_test_full)
-glmfit <- glm(labels_train ~ . - race_primary, data = des, family = "binomial")
+# Case 2: using denoised summary statistics / training logistic model
+des <- cbind(labels_train, id = id_train, demo_df[jj_train, ], u_train)
+despred <- cbind(demo_df[jj_test, ], id = id_test, u_test)
+glmfit <- glm(labels_train ~ . - id - race_primary - race_nih +
+              relevel(as.factor(race_nih), 4),
+              data = des, family = "binomial")
 model_preds <- predict(glmfit, despred, type = "response")
-#
 roc_model <- pROC::roc(labels_test, c(model_preds))
 ci_model  <- ci.se(roc_model, specifities = seq(0, 1, .01))
 roc_raw <- pROC::roc(labels_test, c(raw_preds))
 ci_raw  <- ci.se(roc_raw, specifities = seq(0, 1, .01))
-# roc_sdm1 <- pROC::roc(labels_test, c(model_sdm))
-# sdm_ci1 <- ci.se(roc_sdm1, specifities = seq(0, .1, .01))
-# roc_sdm2 <- pROC::roc(labels_test, c(raw_sdm))
-# sdm_ci2 <- ci.se(roc_sdm2, specifities = seq(0, .1, .01))
-#
 unadj_pauc <- function(roc) {
     # Unnormalized, un-corrected partial AUC in 15% FPR range
     pROC::auc(roc, partial.auc = c(.85, 1),
