@@ -1,4 +1,3 @@
-library(lme4)
 library(pROC)
 library(scales)
 source("main_processing.r")
@@ -37,19 +36,26 @@ labels_test  <- labels[jj_test]
 id_train <- dataset$id[jj_train]
 id_test  <- dataset$id[jj_test]
 #
+demo_df$age_group <- cut(
+    # age discretized
+    demo_df$age,
+    breaks = c(30, 60, 70, 80, 100)
+)
 ## Second stage "model" wants to actually predict glaucoma labels
 ## To prevent data leakage, training data should be "used twice"
 # Case 1: using raw data summary statistics / training logistic model
 rawdes <- cbind(labels_train, id = id_train, demo_df[jj_train, ], y_train)
 rawdespred <- cbind(labels_test, id = id_test, demo_df[jj_test, ], y_test2)
-rawglm <- glm(labels_train ~ . - id - race_primary - race_nih +
+rawglm <- glm(labels_train ~ . - id - race_primary - race_nih - age +
+              age_group +
               relevel(as.factor(race_nih), 4),
               data = rawdes, family = "binomial")
 raw_preds <- predict(rawglm, rawdespred, type = "response")
 # Case 2: using denoised summary statistics / training logistic model
 des <- cbind(labels_train, id = id_train, demo_df[jj_train, ], u_train)
 despred <- cbind(demo_df[jj_test, ], id = id_test, u_test)
-glmfit <- glm(labels_train ~ . - id - race_primary - race_nih +
+glmfit <- glm(labels_train ~ . - id - race_primary - race_nih - age +
+              age_group +
               relevel(as.factor(race_nih), 4),
               data = des, family = "binomial")
 model_preds <- predict(glmfit, despred, type = "response")
@@ -63,12 +69,12 @@ unadj_pauc <- function(roc) {
         partial.auto.correct = F, partial.auc.focus = "sp")
 }
 auc_tab <- rbind(
-    c(ci.auc(auc(roc_model), method = "boot"),
-      ci.auc(auc(roc_raw), method = "boot"))
+    ci.auc(auc(roc_model), method = "boot"),
+    ci.auc(auc(roc_raw), method = "boot")
 )
 pauc_tab <- rbind(
-    c(ci.auc(unadj_pauc(roc_model)) / (1 - .85),
-      ci.auc(unadj_pauc(roc_raw)) / (1 - .85))
+    ci.auc(unadj_pauc(roc_model)) / (1 - .85),
+    ci.auc(unadj_pauc(roc_raw)) / (1 - .85)
 )
 # Significance in two randomized hypothesis tests on ROC curves
 roc.test(auc(roc_model), auc(roc_raw))

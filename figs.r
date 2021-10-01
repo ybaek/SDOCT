@@ -4,8 +4,6 @@ source("infer.r")
 png("images/roc_logistic.png")
 plot(roc_model, col = 4)
 plot(roc_raw, add = T, col = 2)
-plot(ci_model, type = "shape", col = scales::alpha(4, .2), no.roc = TRUE)
-plot(ci_raw, type = "shape", col = scales::alpha(2, .2), no.roc = TRUE)
 abline(v = .85, lty = 2)
 legend(
     "bottomright",
